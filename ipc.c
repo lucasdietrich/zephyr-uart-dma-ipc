@@ -510,8 +510,6 @@ static void ipc_thread(void *_a, void *_b, void *_c)
 	for (;;) {
 		ret = k_poll(events.array, ARRAY_SIZE(events.array), K_FOREVER);
 		if (ret >= 0) {
-			LOG_DBG("k_poll ret = %d / %u : rx %u  tx %u", ret,
-				ARRAY_SIZE(events.array), events.rx_ev.state, events.tx_ev.state);
 #if defined(CONFIG_UART_IPC_RX)
 			if (events.rx_ev.state == K_POLL_STATE_FIFO_DATA_AVAILABLE) {
 				frame = (ipc_frame_t *)k_fifo_get(&rx_fifo, K_NO_WAIT);
