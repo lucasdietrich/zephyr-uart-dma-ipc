@@ -32,7 +32,10 @@ static inline int alloc_frame(ipc_frame_t **p_frame) {
 }
 
 static inline void free_frame(ipc_frame_t **p_frame) {
-	k_mem_slab_free(&frames_slab, (void **)p_frame);
+	if (*p_frame != NULL) {
+		k_mem_slab_free(&frames_slab, (void **)p_frame);
+		*p_frame = NULL;
+	}
 }
 
 // RX
