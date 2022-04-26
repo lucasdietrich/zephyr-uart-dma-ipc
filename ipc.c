@@ -9,7 +9,7 @@
 #if defined(CONFIG_UART_IPC)
 
 #include <logging/log.h>
-LOG_MODULE_REGISTER(ipc, LOG_LEVEL_DBG);
+LOG_MODULE_REGISTER(ipc, LOG_LEVEL_INF);
 
 // TODO monitor usage using CONFIG_MEM_SLAB_TRACE_MAX_UTILIZATION
 
@@ -349,10 +349,23 @@ static inline uint32_t ipc_frame_crc32(ipc_frame_t *frame)
 	return crc_calculate32(start, len >> 2);
 }
 
-static void ipc_log_frame(const ipc_frame_t *frame)
+enum {
+	IPC_DIRECTION_RX = 0,
+	IPC_DIRECTION_TX = 1,
+};
+
+static void ipc_log_frame(const ipc_frame_t *frame, uint8_t direction)
 {
-	LOG_INF("RX IPC frame: %u B seq = %x data size = %u sfd = %x crc32=%x",
-		IPC_FRAME_SIZE, frame->seq, frame->data.size, frame->start_delimiter,
+	const char *dir = "TX";
+	uint32_t start_delimiter = frame->start_delimiter;
+	if (direction == IPC_DIRECTION_RX) {
+		/* set it back for display */
+		start_delimiter = IPC_START_FRAME_DELIMITER; 
+		dir = "RX";
+	}
+
+	LOG_INF("%s IPC frame: %u B seq = %x data size = %u sfd = %x crc32=%x", dir,
+		IPC_FRAME_SIZE, frame->seq, frame->data.size, start_delimiter,
 		frame->crc32);
 	LOG_HEXDUMP_DBG(frame->data.buf, frame->data.size, "IPC frame data");
 }
@@ -430,7 +443,7 @@ static int handle_rx_frame(ipc_frame_t *frame)
 	rx_seq = frame->seq;
 
 	/* show if valid */
-	ipc_log_frame(frame);
+	ipc_log_frame(frame, IPC_DIRECTION_RX);
 
 exit:
 	free_frame(&frame);
@@ -476,7 +489,7 @@ static int handle_tx_frame(ipc_frame_t *frame)
 		      IPC_FRAME_SIZE, 0);
 	if (ret == 0) {
 		/* show frame being sent */
-		ipc_log_frame(frame);
+		ipc_log_frame(frame, IPC_DIRECTION_TX);
 
 		/* increment sequence number */
 		tx_seq++;
