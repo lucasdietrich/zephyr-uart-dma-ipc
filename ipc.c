@@ -356,12 +356,26 @@ static void ipc_thread(void *_a, void *_b, void *_c);
 K_THREAD_DEFINE(ipc_thread_id, 0x400, ipc_thread,
 		NULL, NULL, NULL, K_PRIO_PREEMPT(8), 0, 0);
 
+struct events {
+#if defined(CONFIG_UART_IPC_RX)
+	struct k_poll_event rx_ev;
+#endif /* CONFIG_UART_IPC_RX */
+#if defined(CONFIG_UART_IPC_TX)
+	struct k_poll_event tx_ev;
+#endif /* CONFIG_UART_IPC_TX */
+};
+
 static union {
 	struct {
+#if defined(CONFIG_UART_IPC_RX)
 		struct k_poll_event rx_ev;
+#endif /* CONFIG_UART_IPC_RX */
+#if defined(CONFIG_UART_IPC_TX)
 		struct k_poll_event tx_ev;
+#endif /* CONFIG_UART_IPC_TX */
 	};
-	struct k_poll_event array[2];
+
+	struct k_poll_event array[sizeof(struct events) / sizeof(struct k_poll_event)];
 } events = {
 #if defined(CONFIG_UART_IPC_RX)
 	.rx_ev = K_POLL_EVENT_STATIC_INITIALIZER(K_POLL_TYPE_FIFO_DATA_AVAILABLE,
@@ -369,9 +383,9 @@ static union {
 						 &rx_fifo, 0),
 #endif /* CONFIG_UART_IPC_RX */
 #if defined(CONFIG_UART_IPC_TX)
-	.tx_ev = K_POLL_EVENT_STATIC_INITIALIZER(K_POLL_TYPE_SEM_AVAILABLE,
+	.tx_ev = K_POLL_EVENT_STATIC_INITIALIZER(K_POLL_TYPE_FIFO_DATA_AVAILABLE,
 						 K_POLL_MODE_NOTIFY_ONLY,
-						 &tx_sem, 0),
+						 &tx_fifo, 0),
 #endif /* CONFIG_UART_IPC_TX */
 };
 
