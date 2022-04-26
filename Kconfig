@@ -1,0 +1,11 @@
+config UART_IPC_RX
+	bool "Enable RX IPC"
+	default n
+	help
+		Enable RX thread.
+
+config UART_IPC_TX
+	bool "Enable TX IPC"
+	default n
+	help
+		Enable TX thread.
