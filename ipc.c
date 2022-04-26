@@ -560,7 +560,7 @@ int ipc_send_data(const ipc_data_t *data)
 	}
 
 	/* allocate */
-	ret = ipc_allocate_frame(&frame);
+	ret = alloc_frame(&frame);
 	if (ret == 0) {
 		/* copy data */
 		memcpy(frame->data.buf, data->buf, size);
