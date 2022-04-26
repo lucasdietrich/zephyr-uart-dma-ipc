@@ -9,9 +9,14 @@
 #if defined(CONFIG_UART_IPC)
 
 #include <logging/log.h>
-LOG_MODULE_REGISTER(ipc, LOG_LEVEL_INF);
+LOG_MODULE_REGISTER(ipc, LOG_LEVEL_DBG);
 
 // TODO monitor usage using CONFIG_MEM_SLAB_TRACE_MAX_UTILIZATION
+
+/**
+ * @brief Enables logs in ISR context, caution: may unpredictably behavior
+ */
+#define LOGS_IN_ISR 0
 
 // config
 #define IPC_UART_RX_TIMEOUT_MS 1U
@@ -99,6 +104,7 @@ static inline void queue_tx_frame(ipc_frame_t *frame)
 }
 #endif /* UART_IPC_RX */
 
+#if LOGS_IN_ISR
 // convert uart_event to string
 static const char *uart_event_to_str(enum uart_event_type type)
 {
@@ -121,6 +127,7 @@ static const char *uart_event_to_str(enum uart_event_type type)
 		return "<UNKNOWN>";
 	}
 }
+#endif
 
 #if defined(CONFIG_UART_IPC_RX)
 int ipc_attach_rx_msgq(struct k_msgq *msgq)
@@ -130,6 +137,7 @@ int ipc_attach_rx_msgq(struct k_msgq *msgq)
 	return 0;
 }
 
+#if LOGS_IN_ISR
 // convert enum parsing_state to string
 static const char *parsing_state_to_str(parsing_state_t state)
 {
@@ -144,6 +152,7 @@ static const char *parsing_state_to_str(parsing_state_t state)
 		return "<UNKNOWN>";
 	}
 }
+#endif
 
 /**
  * @brief Copy data from the buffer to the context frame
@@ -169,12 +178,22 @@ static void reset_ctx(void)
 	ctx.filling = 0U;
 }
 
+/**
+ * @brief This function is called from an ISR, so don't do any logging in it, 
+ *  or except in particular cases
+ * 
+ * @param dev 
+ * @param evt 
+ * @param user_data 
+ */
 static void handle_received_chunk(const uint8_t *data, size_t size)
 {
 	int ret;
 
 	while (size > 0) {
+#if LOGS_IN_ISR
 		LOG_DBG("%s", parsing_state_to_str(ctx.state));
+#endif
 		
 		switch (ctx.state) {
 		case PARSING_CATCH_FRAME:
@@ -187,9 +206,10 @@ static void handle_received_chunk(const uint8_t *data, size_t size)
 				 * beginning of the chunk, we discard first bytes
 				 */
 				if (p != data) {
+#if LOGS_IN_ISR
 					LOG_WRN("Discarded %u B",
 						(size_t)(p - data));
-
+#endif
 					/* adjust frame beginning */
 					size -= (p - data);
 					data = p;
@@ -198,7 +218,9 @@ static void handle_received_chunk(const uint8_t *data, size_t size)
 				/* try allocate a frame buffer */
 				ret = alloc_frame(&ctx.frame);
 				if (ret != 0) {
+#if LOGS_IN_ISR
 					LOG_ERR("Failed to allocate buf %d", ret);
+#endif
 					goto discard;
 				}
 
@@ -249,9 +271,12 @@ static void handle_received_chunk(const uint8_t *data, size_t size)
 				__ASSERT(ctx.filling == IPC_FRAME_SIZE,
 					 "Invalid frame size");
 
+				__ASSERT(ctx.frame != NULL, "frame is NULL");
+
+#if LOGS_IN_ISR
 				LOG_DBG("====== FRAME COMPLETE ! seq = %x ======", 
 					ctx.frame->seq);
-
+#endif
 				/* Pass the detected frame to the processing thread by
 				* the FIFO
 				* Note: As queuing a buffer to a FIFO requires 
@@ -259,9 +284,7 @@ static void handle_received_chunk(const uint8_t *data, size_t size)
 				*  frame delimiter will be overwritten.
 				*  However we don't need it anymore as it has been already
 				*  checked above.
-				*/
-				__ASSERT(ctx.frame != NULL, "frame is NULL");
-				
+				*/				
 				k_fifo_put(&rx_fifo, ctx.frame);
 
 				/* reset context for next frame */
@@ -274,8 +297,10 @@ static void handle_received_chunk(const uint8_t *data, size_t size)
 	return;
 
 discard:
+#if LOGS_IN_ISR
 	LOG_WRN("\t %s : Discarding %u B from state ",
 		log_strdup(parsing_state_to_str(ctx.state)), size);
+#endif
 
 	free_frame(&ctx.frame);
 	reset_ctx();
@@ -288,7 +313,9 @@ static void uart_callback(const struct device *dev,
 			  struct uart_event *evt,
 			  void *user_data)
 {
+#if LOGS_IN_ISR
 	LOG_DBG("%s", uart_event_to_str(evt->type));
+#endif 
 
 	switch (evt->type) {
 #if defined(CONFIG_UART_IPC_TX)
@@ -303,10 +330,12 @@ static void uart_callback(const struct device *dev,
 #if defined(CONFIG_UART_IPC_RX)
 	case UART_RX_RDY:
 	{
+#if LOGS_IN_ISR
 		LOG_DBG("buf %x + %x : %u", (uint32_t) evt->data.rx.buf,
 			evt->data.rx.offset, evt->data.rx.len);
 		LOG_HEXDUMP_DBG(evt->data.rx.buf + evt->data.rx.offset,
 				evt->data.rx.len, "RAW");
+#endif
 
 		handle_received_chunk(evt->data.rx.buf + evt->data.rx.offset,
 				      evt->data.rx.len);
@@ -324,12 +353,10 @@ static void uart_callback(const struct device *dev,
 	}
 	case UART_RX_DISABLED:
 	{
-		LOG_WRN("RX disabled %d", 0);
 		break;
 	}
 	case UART_RX_STOPPED:
 	{
-		LOG_WRN("RX stopped %d", evt->data.rx_stop.reason);
 		break;
 	}
 #endif /* CONFIG_UART_IPC_TX */
