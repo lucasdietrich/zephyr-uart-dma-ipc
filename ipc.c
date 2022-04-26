@@ -385,14 +385,14 @@ static union {
 	struct k_poll_event array[sizeof(struct events) / sizeof(struct k_poll_event)];
 } events = {
 #if defined(CONFIG_UART_IPC_RX)
-	.rx_ev = K_POLL_EVENT_STATIC_INITIALIZER(K_POLL_TYPE_FIFO_DATA_AVAILABLE,
-						 K_POLL_MODE_NOTIFY_ONLY,
-						 &rx_fifo, 0),
+	.rx_ev = K_POLL_EVENT_INITIALIZER(K_POLL_TYPE_FIFO_DATA_AVAILABLE,
+					  K_POLL_MODE_NOTIFY_ONLY,
+					  &rx_fifo),
 #endif /* CONFIG_UART_IPC_RX */
 #if defined(CONFIG_UART_IPC_TX)
-	.tx_ev = K_POLL_EVENT_STATIC_INITIALIZER(K_POLL_TYPE_FIFO_DATA_AVAILABLE,
-						 K_POLL_MODE_NOTIFY_ONLY,
-						 &tx_fifo, 0),
+	.tx_ev = K_POLL_EVENT_INITIALIZER(K_POLL_TYPE_FIFO_DATA_AVAILABLE,
+					  K_POLL_MODE_NOTIFY_ONLY,
+					  &tx_fifo),
 #endif /* CONFIG_UART_IPC_TX */
 };
 
@@ -510,19 +510,23 @@ static void ipc_thread(void *_a, void *_b, void *_c)
 	for (;;) {
 		ret = k_poll(events.array, ARRAY_SIZE(events.array), K_FOREVER);
 		if (ret >= 0) {
+			LOG_DBG("k_poll ret = %d / %u : rx %u  tx %u", ret,
+				ARRAY_SIZE(events.array), events.rx_ev.state, events.tx_ev.state);
 #if defined(CONFIG_UART_IPC_RX)
 			if (events.rx_ev.state == K_POLL_STATE_FIFO_DATA_AVAILABLE) {
 				frame = (ipc_frame_t *)k_fifo_get(&rx_fifo, K_NO_WAIT);
-				__ASSERT(frame != NULL, "frame is NULL");
+				__ASSERT(frame != NULL, "RX frame is NULL");
 				handle_rx_frame(frame);
 			}
+			events.rx_ev.state = K_POLL_STATE_NOT_READY;
 #endif /* CONFIG_UART_IPC_RX */
 #if defined(CONFIG_UART_IPC_TX)
 			if (events.tx_ev.state == K_POLL_STATE_FIFO_DATA_AVAILABLE) {
 				frame = (ipc_frame_t *)k_fifo_get(&tx_fifo, K_NO_WAIT);
-				__ASSERT(frame != NULL, "frame is NULL");
+				__ASSERT(frame != NULL, "TX frame is NULL");
 				handle_tx_frame(frame);
 			}
+			events.tx_ev.state = K_POLL_STATE_NOT_READY;
 #endif /* CONFIG_UART_IPC_TX */
 		} else {
 			LOG_ERR("k_poll() failed %d", ret);
