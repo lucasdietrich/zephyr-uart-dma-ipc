@@ -56,7 +56,7 @@ typedef enum {
 	PARSING_CATCH_FRAME = 0, 
 
 	/**
-	 * @brief Parsing the start sfd
+	 * @brief Parsing the sfd
 	 */
 	PARSING_FRAME_START_DELIMITER,
 
@@ -93,6 +93,8 @@ static uint32_t tx_seq = 0U;
 
 static inline void queue_tx_frame(ipc_frame_t *frame)
 {
+	__ASSERT(frame != NULL, "frame is NULL");
+
 	k_fifo_put(&tx_fifo, frame);
 }
 #endif /* UART_IPC_RX */
@@ -258,6 +260,8 @@ static void handle_received_chunk(const uint8_t *data, size_t size)
 				*  However we don't need it anymore as it has been already
 				*  checked above.
 				*/
+				__ASSERT(ctx.frame != NULL, "frame is NULL");
+				
 				k_fifo_put(&rx_fifo, ctx.frame);
 
 				/* reset context for next frame */
