@@ -6,6 +6,8 @@
 #include <devicetree.h>
 #include <drivers/uart.h>
 
+#if defined(CONFIG_UART_IPC)
+
 #include <logging/log.h>
 LOG_MODULE_REGISTER(ipc, LOG_LEVEL_DBG);
 
@@ -34,6 +36,7 @@ static inline void free_frame(ipc_frame_t **p_frame) {
 }
 
 // RX
+#if defined(CONFIG_UART_IPC_RX)
 static uint8_t double_buffer[2][IPC_FRAME_SIZE];
 static uint8_t *next_buffer = double_buffer[1];
 
@@ -42,17 +45,6 @@ static K_FIFO_DEFINE(rx_fifo);
 static struct k_msgq *rx_mxgq = NULL;
 
 static uint32_t rx_seq = 0U;
-
-// TX
-static K_SEM_DEFINE(tx_sem, 1, 1);
-K_FIFO_DEFINE(tx_fifo);
-
-static uint32_t tx_seq = 0U;
-
-static inline void queue_tx_frame(ipc_frame_t *frame)
-{
-	k_fifo_put(&tx_fifo, frame);
-}
 
 typedef enum {
 	/**
@@ -72,7 +64,7 @@ typedef enum {
 	PARSING_FRAME_DATA,
 } parsing_state_t;
 
-// internal : interrupt, thread
+// parsing context
 static struct {
 	parsing_state_t state;
 	size_t remaining;
@@ -87,27 +79,20 @@ static struct {
 	.filling = 0U
 };
 
-int ipc_attach_rx_msgq(struct k_msgq *msgq)
-{
-	rx_mxgq = msgq;
+#endif /* UART_IPC_RX */
 
-	return 0;
-}
+// TX
+#if defined(CONFIG_UART_IPC_TX)
+static K_SEM_DEFINE(tx_sem, 1, 1);
+K_FIFO_DEFINE(tx_fifo);
 
-// convert enum parsing_state to string
-static const char *parsing_state_to_str(parsing_state_t state)
+static uint32_t tx_seq = 0U;
+
+static inline void queue_tx_frame(ipc_frame_t *frame)
 {
-	switch (state) {
-	case PARSING_CATCH_FRAME:
-		return "PARSING_CATCH_FRAME";
-	case PARSING_FRAME_START_DELIMITER:
-		return "PARSING_FRAME_START_DELIMITER";
-	case PARSING_FRAME_DATA:
-		return "PARSING_FRAME_DATA";
-	default:
-		return "<UNKNOWN>";
-	}
+	k_fifo_put(&tx_fifo, frame);
 }
+#endif /* UART_IPC_RX */
 
 // convert uart_event to string
 static const char *uart_event_to_str(enum uart_event_type type)
@@ -127,6 +112,29 @@ static const char *uart_event_to_str(enum uart_event_type type)
 		return "UART_RX_DISABLED";
 	case UART_RX_STOPPED:
 		return "UART_RX_STOPPED";
+	default:
+		return "<UNKNOWN>";
+	}
+}
+
+#if defined(CONFIG_UART_IPC_RX)
+int ipc_attach_rx_msgq(struct k_msgq *msgq)
+{
+	rx_mxgq = msgq;
+
+	return 0;
+}
+
+// convert enum parsing_state to string
+static const char *parsing_state_to_str(parsing_state_t state)
+{
+	switch (state) {
+	case PARSING_CATCH_FRAME:
+		return "PARSING_CATCH_FRAME";
+	case PARSING_FRAME_START_DELIMITER:
+		return "PARSING_FRAME_START_DELIMITER";
+	case PARSING_FRAME_DATA:
+		return "PARSING_FRAME_DATA";
 	default:
 		return "<UNKNOWN>";
 	}
@@ -267,6 +275,8 @@ discard:
 	return;
 }
 
+#endif
+
 static void uart_callback(const struct device *dev,
 			  struct uart_event *evt,
 			  void *user_data)
@@ -274,12 +284,16 @@ static void uart_callback(const struct device *dev,
 	LOG_DBG("%s", uart_event_to_str(evt->type));
 
 	switch (evt->type) {
+#if defined(CONFIG_UART_IPC_TX)
 	case UART_TX_DONE:
 		free_frame((ipc_frame_t **)&evt->data);
 		k_sem_give(&tx_sem);
 		break;
 	case UART_TX_ABORTED:
 		break;
+#endif /* CONFIG_UART_IPC_TX */
+
+#if defined(CONFIG_UART_IPC_RX)
 	case UART_RX_RDY:
 	{
 		LOG_DBG("buf %x + %x : %u", (uint32_t) evt->data.rx.buf,
@@ -311,6 +325,9 @@ static void uart_callback(const struct device *dev,
 		LOG_WRN("RX stopped %d", evt->data.rx_stop.reason);
 		break;
 	}
+#endif /* CONFIG_UART_IPC_TX */
+	default:
+		break;
 	}
 }
 
@@ -322,12 +339,12 @@ static inline uint32_t ipc_frame_crc32(ipc_frame_t *frame)
 	uint32_t *const start = (uint32_t *)&frame->seq;
 	size_t len = sizeof(frame->data) + sizeof(frame->seq); // multiple of 4
 
-	return crc_calculate(start, len >> 2);
+	return crc_calculate32(start, len >> 2);
 }
 
 static void ipc_log_frame(const ipc_frame_t *frame)
 {
-	LOG_INF("RX IPC frame: %u B, seq = %x, data size = %u, sfd = %x, efd = %x crc32=%x",
+	LOG_INF("RX IPC frame: %u B seq = %x data size = %u sfd = %x crc32=%x",
 		IPC_FRAME_SIZE, frame->seq, frame->data.size, frame->start_delimiter,
 		frame->crc32);
 	LOG_HEXDUMP_DBG(frame->data.buf, frame->data.size, "IPC frame data");
@@ -339,18 +356,28 @@ static void ipc_thread(void *_a, void *_b, void *_c);
 K_THREAD_DEFINE(ipc_thread_id, 0x400, ipc_thread,
 		NULL, NULL, NULL, K_PRIO_PREEMPT(8), 0, 0);
 
-static struct k_poll_event events[2] = {
-	K_POLL_EVENT_STATIC_INITIALIZER(K_POLL_TYPE_FIFO_DATA_AVAILABLE,
-					K_POLL_MODE_NOTIFY_ONLY,
-					&rx_fifo, 0),
-	K_POLL_EVENT_STATIC_INITIALIZER(K_POLL_TYPE_SEM_AVAILABLE,
-					K_POLL_MODE_NOTIFY_ONLY,
-					&tx_sem, 0),
+static union {
+	struct {
+		struct k_poll_event rx_ev;
+		struct k_poll_event tx_ev;
+	};
+	struct k_poll_event array[2];
+} events = {
+#if defined(CONFIG_UART_IPC_RX)
+	.rx_ev = K_POLL_EVENT_STATIC_INITIALIZER(K_POLL_TYPE_FIFO_DATA_AVAILABLE,
+						 K_POLL_MODE_NOTIFY_ONLY,
+						 &rx_fifo, 0),
+#endif /* CONFIG_UART_IPC_RX */
+#if defined(CONFIG_UART_IPC_TX)
+	.tx_ev = K_POLL_EVENT_STATIC_INITIALIZER(K_POLL_TYPE_SEM_AVAILABLE,
+						 K_POLL_MODE_NOTIFY_ONLY,
+						 &tx_sem, 0),
+#endif /* CONFIG_UART_IPC_TX */
 };
 
+#if defined(CONFIG_UART_IPC_RX)
 static int handle_rx_frame(ipc_frame_t *frame)
 {
-	static rx_seq = 0U;
 	ipc_log_frame(frame);
 
 	if (frame->seq > rx_seq + 1) {
@@ -375,8 +402,12 @@ static int handle_rx_frame(ipc_frame_t *frame)
 	}
 
 	free_frame(&frame);
-}
 
+	return 0;
+}
+#endif /* CONFIG_UART_IPC_RX */
+
+#if defined(CONFIG_UART_IPC_TX)
 static void prepare_frame(ipc_frame_t *frame, uint32_t sequence_number)
 {
 	frame->start_delimiter = IPC_START_FRAME_DELIMITER;
@@ -411,20 +442,22 @@ static int handle_tx_frame(ipc_frame_t *frame)
 	/* send frame */
 	ret = uart_tx(uart_dev, (const uint8_t *)frame,
 		      IPC_FRAME_SIZE, 0);
-	if (ret != 0) {
+	if (ret == 0) {
+		/* show frame being sent */
+		ipc_log_frame(frame);
+
+		/* increment sequence number */
+		tx_seq++;
+	} else {
 		LOG_ERR("uart_tx failed = %d", ret);
 
 		/* retry on failure */
 		queue_tx_frame(frame);
-		return;
 	}
 
-	/* show frame being sent */
-	ipc_log_frame(frame);
-
-	/* increment sequence number */
-	tx_seq++;
+	return ret;
 }
+#endif /* CONFIG_UART_IPC_TX */
 
 static void ipc_thread(void *_a, void *_b, void *_c)
 {
@@ -433,37 +466,43 @@ static void ipc_thread(void *_a, void *_b, void *_c)
 
 	if (device_is_ready(uart_dev) == false) {
 		LOG_ERR("IPC UART device not ready = %d", 0);
-		return -1;
+		return;
 	}
 
 	ret = uart_callback_set(uart_dev, uart_callback, NULL);
 	if (ret != 0) {
 		LOG_ERR("uart_callback_set() failed %d", ret);
-		return -1;
+		return;
 	}
 
+#if defined(CONFIG_UART_IPC_RX)
 	ret = uart_rx_enable(uart_dev,
 			     double_buffer[0],
 			     IPC_FRAME_SIZE,
 			     IPC_UART_RX_TIMEOUT_MS);
 	if (ret != 0) {
 		LOG_ERR("uart_rx_enable() failed %d", ret);
-		return -1;
+		return;
 	}
+#endif /* CONFIG_UART_IPC_RX */
 
 	for (;;) {
-		ret = k_poll(events, ARRAY_SIZE(events), K_FOREVER);
+		ret = k_poll(events.array, ARRAY_SIZE(events.array), K_FOREVER);
 		if (ret >= 0) {
-			if (events[0].state == K_POLL_STATE_FIFO_DATA_AVAILABLE) {
+#if defined(CONFIG_UART_IPC_RX)
+			if (events.rx_ev.state == K_POLL_STATE_FIFO_DATA_AVAILABLE) {
 				frame = (ipc_frame_t *)k_fifo_get(&rx_fifo, K_NO_WAIT);
 				__ASSERT(frame != NULL, "frame is NULL");
 				handle_rx_frame(frame);
 			}
-			if (events[1].state == K_POLL_STATE_FIFO_DATA_AVAILABLE) {
+#endif /* CONFIG_UART_IPC_RX */
+#if defined(CONFIG_UART_IPC_TX)
+			if (events.tx_ev.state == K_POLL_STATE_FIFO_DATA_AVAILABLE) {
 				frame = (ipc_frame_t *)k_fifo_get(&tx_fifo, K_NO_WAIT);
 				__ASSERT(frame != NULL, "frame is NULL");
 				handle_tx_frame(frame);
 			}
+#endif /* CONFIG_UART_IPC_TX */
 		} else {
 			LOG_ERR("k_poll() failed %d", ret);
 			return;
@@ -471,6 +510,7 @@ static void ipc_thread(void *_a, void *_b, void *_c)
 	}
 }
 
+#if defined(CONFIG_UART_IPC_TX)
 int ipc_send_frame(ipc_frame_t *frame)
 {
 	int ret = -EINVAL;
@@ -515,3 +555,12 @@ int ipc_send_data(const ipc_data_t *data)
 
 	return ret;
 }
+
+int ipc_allocate_frame(ipc_frame_t **frame)
+{
+	return alloc_frame(frame);
+}
+
+#endif /* CONFIG_UART_IPC_TX */
+
+#endif /* CONFIG_IPC_UART */

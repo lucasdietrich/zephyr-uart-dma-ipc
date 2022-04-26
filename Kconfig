@@ -1,11 +1,22 @@
+config UART_IPC
+	bool "IPC over uart implementation"
+	default n
+	select SERIAL
+    	select UART_ASYNC_API
+	select POLL
+	help
+		Enable support for IPC over UART.
+
 config UART_IPC_RX
 	bool "Enable RX IPC"
 	default n
+	select UART_IPC
 	help
 		Enable RX thread.
 
 config UART_IPC_TX
 	bool "Enable TX IPC"
 	default n
+	select UART_IPC
 	help
 		Enable TX thread.
