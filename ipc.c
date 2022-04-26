@@ -403,7 +403,7 @@ static int handle_rx_frame(ipc_frame_t *frame)
 	
 	/* verify length */
 	if(frame->data.size > IPC_MAX_DATA_SIZE) {
-		LOG_ERR("Invalid data size %u", frame->data.size);
+		LOG_ERR("Invalid data size = %u", frame->data.size);
 		goto exit;
 	}
 
