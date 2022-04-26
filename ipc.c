@@ -399,8 +399,27 @@ static union {
 #if defined(CONFIG_UART_IPC_RX)
 static int handle_rx_frame(ipc_frame_t *frame)
 {
-	ipc_log_frame(frame);
+	int ret = -1;
+	
+	/* verify length */
+	if(frame->data.size > IPC_MAX_DATA_SIZE) {
+		LOG_ERR("Invalid data size %u", frame->data.size);
+		goto exit;
+	}
 
+	/* verify crc32 */
+	const uint32_t crc32 = ipc_frame_crc32(frame);	
+	if (crc32 == frame->crc32) {
+		/* dispatch frame to application */
+		if (rx_mxgq != NULL) {
+			ret = k_msgq_put(rx_mxgq, frame, K_NO_WAIT);
+		}
+	} else {
+		LOG_ERR("CRC32 mismatch: %x != %x", crc32, frame->crc32);
+		goto exit;
+	}
+
+	/* compare and update sequence number */
 	if (frame->seq > rx_seq + 1) {
 		LOG_WRN("Seq gap %u -> %u, %u frames lost", rx_seq,
 			frame->seq, frame->seq - rx_seq - 1);
@@ -408,20 +427,12 @@ static int handle_rx_frame(ipc_frame_t *frame)
 		LOG_WRN("Seq rollback from %u to %u, peer probably reseted",
 			rx_seq, frame->seq);
 	}
-
 	rx_seq = frame->seq;
 
-	/* verify frame */
-	const uint32_t crc32 = ipc_frame_crc32(frame);	
-	if (crc32 == frame->crc32) {
-		/* dispatch frame to application */
-		if (rx_mxgq != NULL) {
-			k_msgq_put(rx_mxgq, frame, K_NO_WAIT);
-		}
-	} else {
-		LOG_ERR("CRC32 mismatch: %x != %x", crc32, frame->crc32);
-	}
+	/* show if valid */
+	ipc_log_frame(frame);
 
+exit:
 	free_frame(&frame);
 
 	return 0;
