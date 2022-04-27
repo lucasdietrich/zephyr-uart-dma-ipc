@@ -5,7 +5,7 @@
 
 #define IPC_VERSION 2
 
-#define IPC_MAX_DATA_SIZE 0x4U
+#define IPC_MAX_DATA_SIZE 0x100U
 
 /* reason: CRC32 calculation */
 #if IPC_MAX_DATA_SIZE % 4 != 0
