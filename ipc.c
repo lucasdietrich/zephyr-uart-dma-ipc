@@ -26,7 +26,7 @@ LOG_MODULE_REGISTER(ipc, LOG_LEVEL_WRN);
 static const struct device *uart_dev = DEVICE_DT_GET(IPC_UART_NODE);
 
 // TODO check that device is compatible UART + DMA
-#if !DT_NODE_HAS_STATUS(IPC_UART_NODE, okay);
+#if !DT_NODE_HAS_STATUS(IPC_UART_NODE, okay)
 #	error "ipc_uart device node not found"
 #endif
 
