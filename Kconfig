@@ -6,6 +6,20 @@ config UART_IPC
 	help
 		Enable support for IPC over UART.
 
+config UART_IPC_STACK_SIZE
+	int "UART IPC stack size"
+	default 1024
+	depends on UART_IPC
+	help
+		Adjust stack size
+
+config UART_IPC_MEMSLAB_COUNT
+	int "UART IPC memslab size"
+	default 3
+	depends on UART_IPC
+	help
+		Adjust memslab size
+
 choice UART_IPC_DIR
 	prompt "UART IPC direction"
 	

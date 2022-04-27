@@ -20,16 +20,19 @@ LOG_MODULE_REGISTER(ipc, LOG_LEVEL_WRN);
 
 // config
 #define IPC_UART_RX_TIMEOUT_MS 1U
-#define CONFIG_IPC_MEMSLAB_COUNT 2
 
 // drivers
 #define IPC_UART_NODE DT_ALIAS(ipc_uart)
-#define CRC_NODE DT_NODELABEL(crc1)
-
 static const struct device *uart_dev = DEVICE_DT_GET(IPC_UART_NODE);
 
+// TODO check that device is compatible UART + DMA
+#if !DT_NODE_HAS_STATUS(IPC_UART_NODE, okay);
+#	error "ipc_uart device node not found"
+#endif
+
 // SHARED
-static K_MEM_SLAB_DEFINE(frames_slab, IPC_FRAME_SIZE, CONFIG_IPC_MEMSLAB_COUNT, 4);
+static K_MEM_SLAB_DEFINE(frames_slab, IPC_FRAME_SIZE, 
+			 CONFIG_UART_IPC_MEMSLAB_COUNT, 4);
 
 
 static inline int alloc_frame(ipc_frame_t **p_frame) {
@@ -403,7 +406,7 @@ static void ipc_log_frame(const ipc_frame_t *frame, uint8_t direction)
 // thread
 static void ipc_thread(void *_a, void *_b, void *_c);
 
-K_THREAD_DEFINE(ipc_thread_id, 0x400, ipc_thread,
+K_THREAD_DEFINE(ipc_thread_id, CONFIG_UART_IPC_STACK_SIZE, ipc_thread,
 		NULL, NULL, NULL, K_PRIO_PREEMPT(8), 0, 0);
 
 #if defined(CONFIG_UART_IPC_FULL)
