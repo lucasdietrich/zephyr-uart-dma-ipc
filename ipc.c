@@ -407,7 +407,7 @@ static void ipc_log_frame(const ipc_frame_t *frame, uint8_t direction)
 static void ipc_thread(void *_a, void *_b, void *_c);
 
 K_THREAD_DEFINE(ipc_thread_id, CONFIG_UART_IPC_STACK_SIZE, ipc_thread,
-		NULL, NULL, NULL, K_PRIO_PREEMPT(8), 0, 0);
+		NULL, NULL, NULL, K_PRIO_COOP(8), 0, 0);
 
 #if defined(CONFIG_UART_IPC_FULL)
 static union {
