@@ -9,7 +9,7 @@
 #if defined(CONFIG_UART_IPC)
 
 #include <logging/log.h>
-LOG_MODULE_REGISTER(ipc, LOG_LEVEL_DBG);
+LOG_MODULE_REGISTER(ipc, LOG_LEVEL_WRN);
 
 // TODO monitor usage using CONFIG_MEM_SLAB_TRACE_MAX_UTILIZATION
 
