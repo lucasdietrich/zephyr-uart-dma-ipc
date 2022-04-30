@@ -6,6 +6,9 @@
 #include <devicetree.h>
 #include <drivers/uart.h>
 
+#include <stm32f4xx_hal_gpio.h>
+#include <stm32f4xx_ll_gpio.h>
+
 #if defined(CONFIG_UART_IPC)
 
 #include <logging/log.h>
@@ -13,13 +16,16 @@ LOG_MODULE_REGISTER(ipc, LOG_LEVEL_WRN);
 
 // TODO monitor usage using CONFIG_MEM_SLAB_TRACE_MAX_UTILIZATION
 
-/**
- * @brief Enables logs in ISR context, caution: may unpredictably behavior
- */
-#define LOGS_IN_ISR 0
-
 // config
 #define IPC_UART_RX_TIMEOUT_MS 1U
+
+#define IPC_DEBUG_SIGNALS 1U
+#define DBG_PIN_PORT GPIOC
+#define DBG_PIN_1 GPIO_PIN_8
+#define DBG_PIN_2 GPIO_PIN_9
+#define DBG_PIN_3 GPIO_PIN_10
+#define DBG_PIN_4 GPIO_PIN_11
+#define DBG_PIN_5 GPIO_PIN_12
 
 // drivers
 #define IPC_UART_NODE DT_ALIAS(ipc_uart)
@@ -48,7 +54,8 @@ static inline void free_frame(ipc_frame_t **p_frame) {
 
 // RX
 #if defined(CONFIG_UART_IPC_RX) || defined(CONFIG_UART_IPC_FULL)
-static uint8_t double_buffer[2][IPC_FRAME_SIZE];
+#define SIZE 32
+static uint8_t double_buffer[2][SIZE];
 static uint8_t *next_buffer = double_buffer[1];
 
 static K_FIFO_DEFINE(rx_fifo);
@@ -110,31 +117,6 @@ static inline void queue_tx_frame(ipc_frame_t *frame)
 // statistics and debug to debug functions in ISR context especially
 // TODO
 
-#if LOGS_IN_ISR
-// convert uart_event to string
-static const char *uart_event_to_str(enum uart_event_type type)
-{
-	switch (type) {
-	case UART_TX_DONE:
-		return "UART_TX_DONE";
-	case UART_TX_ABORTED:
-		return "UART_TX_ABORTED";
-	case UART_RX_RDY:
-		return "UART_RX_RDY";
-	case UART_RX_BUF_REQUEST:
-		return "UART_RX_BUF_REQUEST";
-	case UART_RX_BUF_RELEASED:
-		return "UART_RX_BUF_RELEASED";
-	case UART_RX_DISABLED:
-		return "UART_RX_DISABLED";
-	case UART_RX_STOPPED:
-		return "UART_RX_STOPPED";
-	default:
-		return "<UNKNOWN>";
-	}
-}
-#endif
-
 #if defined(CONFIG_UART_IPC_RX) || defined(CONFIG_UART_IPC_FULL)
 int ipc_attach_rx_msgq(struct k_msgq *msgq)
 {
@@ -142,23 +124,6 @@ int ipc_attach_rx_msgq(struct k_msgq *msgq)
 
 	return 0;
 }
-
-#if LOGS_IN_ISR
-// convert enum parsing_state to string
-static const char *parsing_state_to_str(parsing_state_t state)
-{
-	switch (state) {
-	case PARSING_CATCH_FRAME:
-		return "PARSING_CATCH_FRAME";
-	case PARSING_FRAME_START_DELIMITER:
-		return "PARSING_FRAME_START_DELIMITER";
-	case PARSING_FRAME_DATA:
-		return "PARSING_FRAME_DATA";
-	default:
-		return "<UNKNOWN>";
-	}
-}
-#endif
 
 /**
  * @brief Copy data from the buffer to the context frame
@@ -197,10 +162,7 @@ static void handle_received_chunk(const uint8_t *data, size_t size)
 	int ret;
 
 	while (size > 0) {
-#if LOGS_IN_ISR
-		LOG_DBG("%s", parsing_state_to_str(ctx.state));
-#endif
-		
+	
 		switch (ctx.state) {
 		case PARSING_CATCH_FRAME:
 		{
@@ -212,10 +174,6 @@ static void handle_received_chunk(const uint8_t *data, size_t size)
 				 * beginning of the chunk, we discard first bytes
 				 */
 				if (p != data) {
-#if LOGS_IN_ISR
-					LOG_WRN("Discarded %u B",
-						(size_t)(p - data));
-#endif
 					/* adjust frame beginning */
 					size -= (p - data);
 					data = p;
@@ -224,9 +182,6 @@ static void handle_received_chunk(const uint8_t *data, size_t size)
 				/* try allocate a frame buffer */
 				ret = alloc_frame(&ctx.frame);
 				if (ret != 0) {
-#if LOGS_IN_ISR
-					LOG_ERR("Failed to allocate buf %d", ret);
-#endif
 					goto discard;
 				}
 
@@ -274,15 +229,6 @@ static void handle_received_chunk(const uint8_t *data, size_t size)
 			}
 
 			if (ctx.remaining == 0U) {
-				__ASSERT(ctx.filling == IPC_FRAME_SIZE,
-					 "Invalid frame size");
-
-				__ASSERT(ctx.frame != NULL, "frame is NULL");
-
-#if LOGS_IN_ISR
-				LOG_DBG("====== FRAME COMPLETE ! seq = %x ======", 
-					ctx.frame->seq);
-#endif
 				/* Pass the detected frame to the processing thread by
 				* the FIFO
 				* Note: As queuing a buffer to a FIFO requires 
@@ -303,11 +249,6 @@ static void handle_received_chunk(const uint8_t *data, size_t size)
 	return;
 
 discard:
-#if LOGS_IN_ISR
-	LOG_WRN("\t %s : Discarding %u B from state ",
-		log_strdup(parsing_state_to_str(ctx.state)), size);
-#endif
-
 	free_frame(&ctx.frame);
 	reset_ctx();
 	return;
@@ -319,9 +260,9 @@ static void uart_callback(const struct device *dev,
 			  struct uart_event *evt,
 			  void *user_data)
 {
-#if LOGS_IN_ISR
-	LOG_DBG("%s", uart_event_to_str(evt->type));
-#endif 
+#if IPC_DEBUG_SIGNALS
+	LL_GPIO_SetOutputPin(GPIOC, DBG_PIN_1);
+#endif
 
 	switch (evt->type) {
 #if defined(CONFIG_UART_IPC_TX) || defined(CONFIG_UART_IPC_FULL)
@@ -336,15 +277,8 @@ static void uart_callback(const struct device *dev,
 #if defined(CONFIG_UART_IPC_RX) || defined(CONFIG_UART_IPC_FULL)
 	case UART_RX_RDY:
 	{
-#if LOGS_IN_ISR
-		LOG_DBG("buf %x + %x : %u", (uint32_t) evt->data.rx.buf,
-			evt->data.rx.offset, evt->data.rx.len);
-		LOG_HEXDUMP_DBG(evt->data.rx.buf + evt->data.rx.offset,
-				evt->data.rx.len, "RAW");
-#endif
-
-		handle_received_chunk(evt->data.rx.buf + evt->data.rx.offset,
-				      evt->data.rx.len);
+		// handle_received_chunk(evt->data.rx.buf + evt->data.rx.offset,
+		// 		      evt->data.rx.len);
 		break;
 	}
 	case UART_RX_BUF_REQUEST:
@@ -369,6 +303,9 @@ static void uart_callback(const struct device *dev,
 	default:
 		break;
 	}
+#if IPC_DEBUG_SIGNALS
+	LL_GPIO_ResetOutputPin(GPIOC, DBG_PIN_1);
+#endif
 }
 
 extern uint32_t crc_calculate32(uint32_t *buf,
@@ -406,8 +343,8 @@ static void ipc_log_frame(const ipc_frame_t *frame, uint8_t direction)
 // thread
 static void ipc_thread(void *_a, void *_b, void *_c);
 
-K_THREAD_DEFINE(ipc_thread_id, CONFIG_UART_IPC_STACK_SIZE, ipc_thread,
-		NULL, NULL, NULL, K_PRIO_COOP(8), 0, 0);
+// K_THREAD_DEFINE(ipc_thread_id, CONFIG_UART_IPC_STACK_SIZE, ipc_thread,
+// 		NULL, NULL, NULL, K_PRIO_COOP(8), 0, 0);
 
 #if defined(CONFIG_UART_IPC_FULL)
 static union {
@@ -538,18 +475,38 @@ static void ipc_thread(void *_a, void *_b, void *_c)
 		return;
 	}
 
+#if IPC_DEBUG_SIGNALS
+
+	__HAL_RCC_GPIOC_CLK_ENABLE();
+
+	static GPIO_InitTypeDef gpio_initstruct = {
+		.Pin = GPIO_PIN_8 | GPIO_PIN_9 | GPIO_PIN_10 | GPIO_PIN_11 | GPIO_PIN_12,
+		.Mode = GPIO_MODE_OUTPUT_PP,
+		.Pull = GPIO_PULLUP,
+		.Speed = GPIO_SPEED_FREQ_HIGH,
+	};
+
+	HAL_GPIO_Init(GPIOC, &gpio_initstruct);
+
+	LL_GPIO_ResetOutputPin(GPIOC, LL_GPIO_PIN_8 | LL_GPIO_PIN_9 |
+			       LL_GPIO_PIN_10 | LL_GPIO_PIN_11 | LL_GPIO_PIN_12);
+#endif
+
 #if defined(CONFIG_UART_IPC_RX) || defined(CONFIG_UART_IPC_FULL)
 	ret = uart_rx_enable(uart_dev,
 			     double_buffer[0],
-			     IPC_FRAME_SIZE,
+			     SIZE,
 			     IPC_UART_RX_TIMEOUT_MS);
 	if (ret != 0) {
 		LOG_ERR("uart_rx_enable() failed %d", ret);
 		return;
 	}
 #endif /* CONFIG_UART_IPC_RX */
+	uint32_t i = 0;
 
 	for (;;) {
+		printk("Polling %d\n", i++);
+
 #if defined(CONFIG_UART_IPC_FULL)
 		ret = k_poll(events.array, ARRAY_SIZE(events.array), K_FOREVER);
 		if (ret >= 0) {
@@ -573,6 +530,7 @@ static void ipc_thread(void *_a, void *_b, void *_c)
 		frame = (ipc_frame_t *)k_fifo_get(&rx_fifo, K_FOREVER);
 		__ASSERT(frame != NULL, "RX frame is NULL");
 		handle_rx_frame(frame);
+		printk("rcvd %p : %u\n", frame, i++);
 #elif defined(CONFIG_UART_IPC_TX)
 		frame = (ipc_frame_t *)k_fifo_get(&tx_fifo, K_FOREVER);
 		__ASSERT(frame != NULL, "TX frame is NULL");

@@ -7,8 +7,10 @@
 
 #define IPC_MAX_DATA_SIZE 0x100U
 
+#define MONITOR_EXEC 1
+
 /* reason: CRC32 calculation */
-#if IPC_MAX_DATA_SIZE % 4 != 0
+#if IPC_MAX_DATA_SIZE & 0b11 != 0
 #	error "IPC_MAX_DATA_SIZE must be a multiple of 4"
 #endif
 
