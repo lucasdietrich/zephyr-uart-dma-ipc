@@ -14,7 +14,7 @@
 #if defined(CONFIG_UART_IPC)
 
 #include <logging/log.h>
-LOG_MODULE_REGISTER(ipc, LOG_LEVEL_DBG);
+LOG_MODULE_REGISTER(ipc, LOG_LEVEL_WRN);
 
 // TODO monitor usage using CONFIG_MEM_SLAB_TRACE_MAX_UTILIZATION
 
@@ -365,7 +365,7 @@ static int handle_rx_frame(ipc_frame_t *frame)
 	}
 
 	/* verify crc32 */
-	const uint32_t crc32 = ipc_frame_crc32(frame);	
+	const uint32_t crc32 = ipc_frame_crc32(frame);
 	if (crc32 == frame->crc32) {
 		/* dispatch frame to application */
 		if (rx_mxgq != NULL) {
@@ -374,6 +374,8 @@ static int handle_rx_frame(ipc_frame_t *frame)
 				LOG_WRN("Provided user msgq is full, dropping frame %p",
 					frame);
 			}
+		} else {
+			LOG_WRN("No user msgq provided, dropping frame %p", frame);
 		}
 	} else {
 		LOG_ERR("CRC32 mismatch: %x != %x", crc32, frame->crc32);

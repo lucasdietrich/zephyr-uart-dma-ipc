@@ -8,24 +8,24 @@ config UART_IPC
 
 config UART_IPC_STACK_SIZE
 	int "UART IPC stack size"
-	default 1024
+	default 512
 	depends on UART_IPC
 	help
 		Adjust stack size
 
 config UART_IPC_FRAME_BUFFER_COUNT
-	int "UART IPC internal memslab messages size"
+	int "UART IPC internal memslab messages count"
 	default 3
 	depends on UART_IPC
 	help
-		Adjust memslab size
+		Adjust internal memslab messages count.
 
 config UART_IPC_DMA_BUF_SIZE
 	int "UART IPC DMA RX buffers size"
 	default 64
 	depends on UART_IPC
 	help
-		Adjust DMA RX buffer size 
+		Adjust internal DMA RX buffer size 
 
 config UART_IPC_DEBUG_GPIO
 	bool "UART IPC debug GPIO"
