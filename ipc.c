@@ -57,7 +57,7 @@ static const struct device *uart_dev = DEVICE_DT_GET(IPC_UART_NODE);
 
 // SHARED
 static K_MEM_SLAB_DEFINE(frames_slab, IPC_FRAME_SIZE, 
-			 CONFIG_UART_IPC_MEMSLAB_COUNT, 4);
+			 CONFIG_UART_IPC_FRAME_BUFFER_COUNT, 4);
 
 
 static inline int alloc_frame(ipc_frame_t **p_frame) {

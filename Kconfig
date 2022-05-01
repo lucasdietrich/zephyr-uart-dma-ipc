@@ -13,8 +13,8 @@ config UART_IPC_STACK_SIZE
 	help
 		Adjust stack size
 
-config UART_IPC_MEMSLAB_COUNT
-	int "UART IPC memslab size"
+config UART_IPC_FRAME_BUFFER_COUNT
+	int "UART IPC internal memslab messages size"
 	default 3
 	depends on UART_IPC
 	help
