@@ -20,6 +20,22 @@ config UART_IPC_MEMSLAB_COUNT
 	help
 		Adjust memslab size
 
+config UART_IPC_DMA_BUF_SIZE
+	int "UART IPC DMA RX buffers size"
+	default 64
+	depends on UART_IPC
+	help
+		Adjust DMA RX buffer size 
+
+config UART_IPC_DEBUG_GPIO
+	bool "UART IPC debug GPIO"
+	default false
+	depends on SOC_SERIES_STM32F4X
+	select USE_STM32_HAL_GPIO
+	depends on UART_IPC
+	help
+		Enable debugging using GPIO pins
+
 choice UART_IPC_DIR
 	prompt "UART IPC direction"
 	

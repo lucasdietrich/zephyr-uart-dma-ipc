@@ -6,26 +6,45 @@
 #include <devicetree.h>
 #include <drivers/uart.h>
 
-#include <stm32f4xx_hal_gpio.h>
-#include <stm32f4xx_ll_gpio.h>
+#if defined(CONFIG_UART_IPC_DEBUG_GPIO)
+#	include <stm32f4xx_hal_gpio.h>
+#	include <stm32f4xx_ll_gpio.h>
+#endif
 
 #if defined(CONFIG_UART_IPC)
 
 #include <logging/log.h>
-LOG_MODULE_REGISTER(ipc, LOG_LEVEL_WRN);
+LOG_MODULE_REGISTER(ipc, LOG_LEVEL_DBG);
 
 // TODO monitor usage using CONFIG_MEM_SLAB_TRACE_MAX_UTILIZATION
 
 // config
 #define IPC_UART_RX_TIMEOUT_MS 1U
 
-#define IPC_DEBUG_SIGNALS 1U
-#define DBG_PIN_PORT GPIOC
-#define DBG_PIN_1 GPIO_PIN_8
-#define DBG_PIN_2 GPIO_PIN_9
-#define DBG_PIN_3 GPIO_PIN_10
-#define DBG_PIN_4 GPIO_PIN_11
-#define DBG_PIN_5 GPIO_PIN_12
+#if defined(CONFIG_UART_IPC_DEBUG_GPIO)
+
+#	define DBG_PIN_PORT GPIOC
+#	define DBG_PIN_1 GPIO_PIN_8
+#	define DBG_PIN_2 GPIO_PIN_9
+#	define DBG_PIN_3 GPIO_PIN_10
+#	define DBG_PIN_4 GPIO_PIN_11
+#	define DBG_PIN_5 GPIO_PIN_12
+
+#	define __DEBUG_RX() LL_GPIO_TogglePin(GPIOC, DBG_PIN_1)
+#	define __DEBUG_RX_HANDLER_ENTER() LL_GPIO_SetOutputPin(GPIOC, DBG_PIN_2)
+#	define __DEBUG_RX_HANDLER_EXIT() LL_GPIO_ResetOutputPin(GPIOC, DBG_PIN_2)
+#	define __DEBUG_RX_FRAME_READY() LL_GPIO_TogglePin(GPIOC, DBG_PIN_3)
+
+#else
+
+#	define __DEBUG_RX() 
+#	define __DEBUG_RX_HANDLER_ENTER()
+#	define __DEBUG_RX_HANDLER_EXIT()
+#	define __DEBUG_RX_FRAME_READY()
+
+#endif
+
+
 
 // drivers
 #define IPC_UART_NODE DT_ALIAS(ipc_uart)
@@ -54,8 +73,8 @@ static inline void free_frame(ipc_frame_t **p_frame) {
 
 // RX
 #if defined(CONFIG_UART_IPC_RX) || defined(CONFIG_UART_IPC_FULL)
-#define SIZE 32
-static uint8_t double_buffer[2][SIZE];
+
+static uint8_t double_buffer[2][CONFIG_UART_IPC_DMA_BUF_SIZE];
 static uint8_t *next_buffer = double_buffer[1];
 
 static K_FIFO_DEFINE(rx_fifo);
@@ -131,27 +150,14 @@ int ipc_attach_rx_msgq(struct k_msgq *msgq)
  * @param data ²
  * @param len 
  */
-static inline void copy(uint8_t *data, size_t len)
+static inline void copy(const uint8_t *data, size_t len)
 {
 	memcpy(ctx.raw + ctx.filling, data, len);
 	ctx.filling += len;
 }
 
-static inline void copy_byte(const char chr)
-{
-	ctx.raw[ctx.filling++] = chr;
-}
-
-static void reset_ctx(void)
-{
-	ctx.frame = NULL;
-	ctx.state = PARSING_CATCH_FRAME;
-	ctx.filling = 0U;
-}
-
 /**
- * @brief This function is called from an ISR, so don't do any logging in it, 
- *  or except in particular cases
+ * @brief This function is called from an ISR, so don't do logging in it at all
  * 
  * @param dev 
  * @param evt 
@@ -159,98 +165,87 @@ static void reset_ctx(void)
  */
 static void handle_received_chunk(const uint8_t *data, size_t size)
 {
-	int ret;
+	__DEBUG_RX_HANDLER_ENTER();
 
 	while (size > 0) {
-	
 		switch (ctx.state) {
 		case PARSING_CATCH_FRAME:
 		{
-			/* looking for the first byte of the start frame delimiter */
 			uint8_t *const p = (uint8_t *)
 				memchr(data, IPC_START_FRAME_DELIMITER_BYTE, size);
-			if (p != NULL) {
-				/* if start frame delimiter is not at the very
-				 * beginning of the chunk, we discard first bytes
+			if (p == NULL) {
+				/* first byte of the start frame
+				 * delimiter not found in the chuck
 				 */
-				if (p != data) {
-					/* adjust frame beginning */
-					size -= (p - data);
-					data = p;
-				}
-
-				/* try allocate a frame buffer */
-				ret = alloc_frame(&ctx.frame);
-				if (ret != 0) {
-					goto discard;
-				}
-
-				/* prepare context for the next state */
-				ctx.remaining =
-					IPC_START_FRAME_DELIMITER_SIZE - 1U;
-				ctx.state = PARSING_FRAME_START_DELIMITER;
-				copy_byte(*data);
-				data++;
-				size--;
-			} else {
-				/* not found */
-				goto discard;
+				goto discard_rest;
 			}
+
+			if (ctx.frame == NULL) {
+				if (alloc_frame(&ctx.frame) != 0) {
+					goto discard_rest;
+				}
+			}
+
+			size -= (p - data) + 1U;
+			data = p + 1U;
+
+			ctx.remaining = IPC_START_FRAME_DELIMITER_SIZE - 1U;
+			ctx.state = PARSING_FRAME_START_DELIMITER;
 			break;
 		}
 		case PARSING_FRAME_START_DELIMITER:
 		{
-			while (ctx.remaining > 0U && size > 0U) {
-				if (data[0] == IPC_START_FRAME_DELIMITER_BYTE) {
-					copy_byte(*data);
-					ctx.remaining--;
-					data++;
-					size--;
-
-				} else {
-					goto discard;
+			while (size > 0) {
+				if (*data != IPC_START_FRAME_DELIMITER_BYTE) {
+					ctx.state = PARSING_CATCH_FRAME;
+					break;
 				}
-			}
-
-			if (ctx.remaining == 0U) {
-				ctx.state = PARSING_FRAME_DATA;
-				ctx.remaining = IPC_FRAME_SIZE
-					- IPC_START_FRAME_DELIMITER_SIZE;
+				data++;
+				size--;
+				if (--ctx.remaining == 0U) {
+					ctx.remaining = IPC_FRAME_SIZE
+						- IPC_START_FRAME_DELIMITER_SIZE;
+					ctx.state = PARSING_FRAME_DATA;
+					ctx.filling = IPC_START_FRAME_DELIMITER_SIZE;
+					break;
+				}
 			}
 			break;
 		}
 		case PARSING_FRAME_DATA:
 		{
-			while (ctx.remaining > 0U && size > 0U) {
-				ctx.remaining--;
-				copy_byte(*data);
-				data++;
-				size--;
-			}
+			size_t tocopy = (ctx.remaining < size) ? ctx.remaining : size;
+			copy(data, tocopy);
+			data += tocopy;
+			size -= tocopy;
+			ctx.remaining -= tocopy;
 
 			if (ctx.remaining == 0U) {
 				/* Pass the detected frame to the processing thread by
 				* the FIFO
-				* Note: As queuing a buffer to a FIFO requires 
+				* Note: As queuing a buffer to a FIFO requires
 				*  to write an address at the beginning, the start
-				*  frame delimiter will be overwritten.
+				*  frame delimiter is not forwarded.
 				*  However we don't need it anymore as it has been already
-				*  checked above.
-				*/				
+				*  checked in this function.
+				*/
 				k_fifo_put(&rx_fifo, ctx.frame);
 
-				/* reset context for next frame */
-				reset_ctx();
+				ctx.frame = NULL;
+				ctx.state = PARSING_CATCH_FRAME;
+				__DEBUG_RX_FRAME_READY();
 			}
 			break;
 		}
 		}
 	}
+
+	__DEBUG_RX_HANDLER_EXIT();
 	return;
 
-discard:
-	free_frame(&ctx.frame);
-	reset_ctx();
+discard_rest:
+	ctx.state = PARSING_CATCH_FRAME;
+	__DEBUG_RX_HANDLER_EXIT();
 	return;
 }
 
@@ -260,10 +255,6 @@ static void uart_callback(const struct device *dev,
 			  struct uart_event *evt,
 			  void *user_data)
 {
-#if IPC_DEBUG_SIGNALS
-	LL_GPIO_SetOutputPin(GPIOC, DBG_PIN_1);
-#endif
-
 	switch (evt->type) {
 #if defined(CONFIG_UART_IPC_TX) || defined(CONFIG_UART_IPC_FULL)
 	case UART_TX_DONE:
@@ -277,13 +268,14 @@ static void uart_callback(const struct device *dev,
 #if defined(CONFIG_UART_IPC_RX) || defined(CONFIG_UART_IPC_FULL)
 	case UART_RX_RDY:
 	{
-		// handle_received_chunk(evt->data.rx.buf + evt->data.rx.offset,
-		// 		      evt->data.rx.len);
+		__DEBUG_RX();
+		handle_received_chunk(evt->data.rx.buf + evt->data.rx.offset,
+				       evt->data.rx.len);
 		break;
 	}
 	case UART_RX_BUF_REQUEST:
 	{
-		uart_rx_buf_rsp(dev, next_buffer, IPC_FRAME_SIZE);
+		uart_rx_buf_rsp(dev, next_buffer, CONFIG_UART_IPC_DMA_BUF_SIZE);
 		break;
 	}
 	case UART_RX_BUF_RELEASED:
@@ -303,9 +295,6 @@ static void uart_callback(const struct device *dev,
 	default:
 		break;
 	}
-#if IPC_DEBUG_SIGNALS
-	LL_GPIO_ResetOutputPin(GPIOC, DBG_PIN_1);
-#endif
 }
 
 extern uint32_t crc_calculate32(uint32_t *buf,
@@ -330,7 +319,7 @@ static void ipc_log_frame(const ipc_frame_t *frame, uint8_t direction)
 	uint32_t start_delimiter = frame->start_delimiter;
 	if (direction == IPC_DIRECTION_RX) {
 		/* set it back for display */
-		start_delimiter = IPC_START_FRAME_DELIMITER; 
+		start_delimiter = IPC_START_FRAME_DELIMITER;
 		dir = "RX";
 	}
 
@@ -343,8 +332,8 @@ static void ipc_log_frame(const ipc_frame_t *frame, uint8_t direction)
 // thread
 static void ipc_thread(void *_a, void *_b, void *_c);
 
-// K_THREAD_DEFINE(ipc_thread_id, CONFIG_UART_IPC_STACK_SIZE, ipc_thread,
-// 		NULL, NULL, NULL, K_PRIO_COOP(8), 0, 0);
+K_THREAD_DEFINE(ipc_thread_id, CONFIG_UART_IPC_STACK_SIZE, ipc_thread,
+		NULL, NULL, NULL, K_PRIO_PREEMPT(8), 0, 0);
 
 #if defined(CONFIG_UART_IPC_FULL)
 static union {
@@ -381,6 +370,10 @@ static int handle_rx_frame(ipc_frame_t *frame)
 		/* dispatch frame to application */
 		if (rx_mxgq != NULL) {
 			ret = k_msgq_put(rx_mxgq, frame, K_NO_WAIT);
+			if (ret != 0) {
+				LOG_WRN("Provided user msgq is full, dropping frame %p",
+					frame);
+			}
 		}
 	} else {
 		LOG_ERR("CRC32 mismatch: %x != %x", crc32, frame->crc32);
@@ -475,7 +468,7 @@ static void ipc_thread(void *_a, void *_b, void *_c)
 		return;
 	}
 
-#if IPC_DEBUG_SIGNALS
+#if defined(CONFIG_UART_IPC_DEBUG_GPIO)
 
 	__HAL_RCC_GPIOC_CLK_ENABLE();
 
@@ -495,18 +488,15 @@ static void ipc_thread(void *_a, void *_b, void *_c)
 #if defined(CONFIG_UART_IPC_RX) || defined(CONFIG_UART_IPC_FULL)
 	ret = uart_rx_enable(uart_dev,
 			     double_buffer[0],
-			     SIZE,
+			     CONFIG_UART_IPC_DMA_BUF_SIZE,
 			     IPC_UART_RX_TIMEOUT_MS);
 	if (ret != 0) {
 		LOG_ERR("uart_rx_enable() failed %d", ret);
 		return;
 	}
 #endif /* CONFIG_UART_IPC_RX */
-	uint32_t i = 0;
 
 	for (;;) {
-		printk("Polling %d\n", i++);
-
 #if defined(CONFIG_UART_IPC_FULL)
 		ret = k_poll(events.array, ARRAY_SIZE(events.array), K_FOREVER);
 		if (ret >= 0) {
@@ -530,7 +520,6 @@ static void ipc_thread(void *_a, void *_b, void *_c)
 		frame = (ipc_frame_t *)k_fifo_get(&rx_fifo, K_FOREVER);
 		__ASSERT(frame != NULL, "RX frame is NULL");
 		handle_rx_frame(frame);
-		printk("rcvd %p : %u\n", frame, i++);
 #elif defined(CONFIG_UART_IPC_TX)
 		frame = (ipc_frame_t *)k_fifo_get(&tx_fifo, K_FOREVER);
 		__ASSERT(frame != NULL, "TX frame is NULL");
