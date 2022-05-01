@@ -116,11 +116,11 @@ Sequnce number is incremented by 1 for each frame sent. It can be used to:
 
 It can be used to construct a reliable complexe protocol over it.
 
-## Implementation examples:
+## Reference implementations:
 
 These two projects integrate this protocol :
-- TODO
-- TODO
+- TX : https://github.com/lucasdietrich/zephyr-nrf52840-ble-dev/tree/ble_xiaomi_mijia_collector
+- RX : https://github.com/lucasdietrich/stm32f429zi-caniot-controller
 
 
 ## Debug (using GPIO)
