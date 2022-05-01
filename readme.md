@@ -1,8 +1,8 @@
-# IPC protocol over UART
+# Zephyr RTOS : IPC protocol over UART module
 
 In this context IPC stands for Inter Processor Communication
 
-The goal of this "module" is to provide a generic IPC protocol over UART in Zephyr RTOS OS and for hardware supporting UART_ASYNC API.
+The goal of this "module" is to provide a generic IPC over UART protocol implementation for Zephyr RTOS applications which hardware support zephyr UART_ASYNC API.
 
 This module offers an implementation for both RX and TX directions, that can be enabled or disabled independently.
 
@@ -10,11 +10,14 @@ Note: This module requires the polling API `CONFIG_POLL` to be enabled when both
 
 ## Configuration options
 
+The `Kconfig` file should be included in your application using the `rsource` directive in the application `Kconfig` file: 
+- e.g. `rsource "src/uart_ipc/Kconfig"` at the beginning of the application `Kconfig` file (in application root directory).
+
 | configuration option            | user assignable | type   | default | description                             |
 | ------------------------------- | --------------- | ------ | ------- | --------------------------------------- |
 | UART\_IPC                       | no              | bool   | false   | Enable support for IPC over UART.       |
-| UART\_IPC\_STACK\_SIZE          | yes             | int    | 512    | Adjust stack size                       |
-| UART\_IPC\_FRAME\_BUFFER\_COUNT | yes             | y      | 3     | Adjust internal memslab messages count. |
+| UART\_IPC\_STACK\_SIZE          | yes             | int    | 512     | Adjust stack size                       |
+| UART\_IPC\_FRAME\_BUFFER\_COUNT | yes             | y      | 3       | Adjust internal memslab messages count. |
 | UART\_IPC\_DMA\_BUF\_SIZE       | yes             | int    | 64      | Adjust internal DMA RX buffer size      |
 | UART\_IPC\_DEBUG\_GPIO          | yes             | bool   | false   | Enable debugging using GPIO pins        |
 | UART\_IPC\_DIR                  | no              | choice | /       | UART IPC direction                      |
