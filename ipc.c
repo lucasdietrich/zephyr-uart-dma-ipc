@@ -490,6 +490,9 @@ static int handle_rx_frame(ipc_frame_t *frame)
 			rx_seq, frame->seq);
 	}
 
+	/* update sequence number */
+	rx_seq = frame->seq;
+
 	/* check if ping */
 #if defined(CONFIG_UART_IPC_PING)
 	if (frame->ver == IPC_FRAME_TYPE_PING) {
@@ -511,8 +514,6 @@ static int handle_rx_frame(ipc_frame_t *frame)
 		STATS_RX_INC_DROPPED_FRAMES();
 		LOG_WRN("No user msgq provided, dropping frame %p", frame);
 	}
-
-	rx_seq = frame->seq;
 
 	/* show if valid */
 	ipc_log_frame(frame, IPC_DIRECTION_RX);
