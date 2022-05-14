@@ -428,10 +428,15 @@ static void ipc_log_frame(const ipc_frame_t *frame, uint8_t direction)
 		dir = "RX";
 	}
 
-	LOG_INF("%s IPC frame: %u B seq = %x data size = %u sfd = %x crc32=%x", dir,
-		IPC_FRAME_SIZE, frame->seq, frame->data.size, start_delimiter,
-		frame->crc32);
-	LOG_HEXDUMP_DBG(frame->data.buf, frame->data.size, "IPC frame data");
+	LOG_INF("%s IPC frame: %u B seq: %x ver: %u sz: %u sfd: %x crc32=%x", 
+		dir, IPC_FRAME_SIZE, frame->seq, (uint32_t)frame->ver,
+		(uint32_t)frame->data.size, start_delimiter, frame->crc32);
+
+	if (frame->data.size > 0) {
+		LOG_HEXDUMP_DBG(frame->data.buf,
+				frame->data.size,
+				"IPC frame data");
+	}
 }
 
 // thread
