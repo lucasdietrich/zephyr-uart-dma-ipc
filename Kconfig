@@ -63,7 +63,7 @@ endchoice
 config UART_IPC_PING
 	bool "Enable ping support"
 	default n
-	depends on UART_IPC_FULL
+	depends on UART_IPC
 	help
 		Enable ping support (requires UART_IPC_FULL RX and TX)
 

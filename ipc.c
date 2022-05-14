@@ -14,7 +14,7 @@
 #if defined(CONFIG_UART_IPC)
 
 #include <logging/log.h>
-LOG_MODULE_REGISTER(ipc, LOG_LEVEL_WRN);
+LOG_MODULE_REGISTER(ipc, LOG_LEVEL_DBG);
 
 // TODO monitor usage using CONFIG_MEM_SLAB_TRACE_MAX_UTILIZATION
 
@@ -198,9 +198,14 @@ static void reset_stats(void)
 
 #define STATS_TX_INC_BYTES_BY(value) STATS_INC_BY(tx.bytes, value)
 #define STATS_TX_INC_FRAMES() STATS_INC(tx.frames)
+#define STATS_TX_INC_RETRIES() STATS_INC(tx.retries)
+
+#if defined(CONFIG_UART_IPC_PING)
 
 #define STATS_PING_INC_RX() STATS_INC(ping.rx)
 #define STATS_PING_INC_TX() STATS_INC(ping.tx)
+
+#endif /* defined(CONFIG_UART_IPC_PING) */
 
 #define STATS_MISC_INC_MEM_ALLOC_FAIL() STATS_INC(misc.mem_alloc_fail)
 
@@ -218,6 +223,7 @@ static void reset_stats(void)
 
 #define STATS_TX_INC_BYTES_BY(value)
 #define STATS_TX_INC_FRAMES()
+#define STATS_TX_INC_RETRIES()
 
 #define STATS_PING_INC_RX()
 #define STATS_PING_INC_TX()
@@ -478,10 +484,11 @@ static int handle_rx_frame(ipc_frame_t *frame)
 
 	/* check if ping */
 	if (frame_is_ping(frame)) {
-		LOG_INF("Received ping");
-
+#if defined(CONFIG_UART_IPC_PING)
 		ping_ctx.rx_ms = k_uptime_get_32();
 		STATS_PING_INC_RX();
+#endif /* defined(CONFIG_UART_IPC_PING) */
+		
 		goto exit;
 
 	/* compare and update sequence number */
@@ -522,33 +529,10 @@ exit:
 #endif /* CONFIG_UART_IPC_RX */
 
 #if defined(CONFIG_UART_IPC_TX) || defined(CONFIG_UART_IPC_FULL)
-static void prepare_frame(ipc_frame_t *frame, uint32_t sequence_number)
-{
-	frame->start_delimiter = IPC_START_FRAME_DELIMITER;
 
-	/* set sequence number */
-	frame->seq = tx_seq;
-
-	/* final check on data size */
-	if (frame->data.size > IPC_MAX_DATA_SIZE) {
-		LOG_ERR("IPC frame data size too big = %d", frame->data.size);
-		frame->data.size = IPC_MAX_DATA_SIZE;
-	}
-
-	/* padding */
-	memset(&frame->data.buf[frame->data.size], 0x00,
-	       IPC_MAX_DATA_SIZE - frame->data.size);
-	
-	/* calculate crc32 */
-	frame->crc32 = ipc_frame_crc32(frame);
-}
-
-static int handle_tx_frame(ipc_frame_t *frame)
+static int send_frame(ipc_frame_t *frame, bool retry)
 {
 	int ret;
-
-	/* prepare IPC frame, sfd, efd, crc32, ... */
-	prepare_frame(frame, tx_seq);
 
 	/* wait for tx finish */
 	k_sem_take(&tx_sem, K_FOREVER);
@@ -567,11 +551,44 @@ static int handle_tx_frame(ipc_frame_t *frame)
 	} else {
 		LOG_ERR("uart_tx failed = %d", ret);
 
+		if (retry == true) {
 		/* retry on failure */
-		queue_tx_frame(frame);
+			queue_tx_frame(frame);
+
+			STATS_TX_INC_RETRIES();
+		}
 	}
 
 	return ret;
+}
+
+static void prepare_frame(ipc_frame_t *frame, uint32_t sequence_number)
+{
+	frame->start_delimiter = IPC_START_FRAME_DELIMITER;
+
+	/* set sequence number */
+	frame->seq = sequence_number;
+
+	/* final check on data size */
+	if (frame->data.size > IPC_MAX_DATA_SIZE) {
+		LOG_ERR("IPC frame data size too big = %d", frame->data.size);
+		frame->data.size = IPC_MAX_DATA_SIZE;
+	}
+
+	/* padding */
+	memset(&frame->data.buf[frame->data.size], 0x00,
+	       IPC_MAX_DATA_SIZE - frame->data.size);
+	
+	/* calculate crc32 */
+	frame->crc32 = ipc_frame_crc32(frame);
+}
+
+static int handle_tx_frame(ipc_frame_t *frame, bool isping)
+{
+	/* prepare IPC frame, sfd, efd, crc32, ... */
+	prepare_frame(frame, isping ? IPC_PING : tx_seq);
+
+	return send_frame(frame, !isping);
 }
 #endif /* CONFIG_UART_IPC_TX */
 
@@ -621,8 +638,16 @@ static void ipc_thread(void *_a, void *_b, void *_c)
 
 	for (;;) {
 #if defined(CONFIG_UART_IPC_FULL)
+		/**
+		 * @brief k_poll doesn't work as POSIX poll()
+		 *   because when 0 is returned, it doesn't mean that the polling 
+		 *   timeout has expire witout any event. It does mean that
+		 *   the poll returned because of a signal or timeout.
+		 * 
+		 * @see https://docs.zephyrproject.org/apidoc/latest/group__poll__apis.html#gac550dc93662ce164fb22a5a91d6830db
+		 */
 		ret = k_poll(events.array, ARRAY_SIZE(events.array), get_poll_timeout());
-		if (ret > 0) {
+		if (ret >= 0) {
 			if (events.rx_ev.state == K_POLL_STATE_FIFO_DATA_AVAILABLE) {
 				frame = (ipc_frame_t *)k_fifo_get(&rx_fifo, K_NO_WAIT);
 				__ASSERT(frame != NULL, "RX frame is NULL");
@@ -632,7 +657,7 @@ static void ipc_thread(void *_a, void *_b, void *_c)
 			if (events.tx_ev.state == K_POLL_STATE_FIFO_DATA_AVAILABLE) {
 				frame = (ipc_frame_t *)k_fifo_get(&tx_fifo, K_NO_WAIT);
 				__ASSERT(frame != NULL, "TX frame is NULL");
-				handle_tx_frame(frame);
+				handle_tx_frame(frame, false);
 			}
 			events.tx_ev.state = K_POLL_STATE_NOT_READY;
 		} else if ((ret < 0) && (ret != -EAGAIN)) {
@@ -640,18 +665,30 @@ static void ipc_thread(void *_a, void *_b, void *_c)
 			return;
 		}
 
+#elif defined(CONFIG_UART_IPC_RX)
+		frame = (ipc_frame_t *)k_fifo_get(&rx_fifo, get_poll_timeout());
+		if (!defined(CONFIG_UART_IPC_PING) || (frame != NULL)) {
+			__ASSERT(frame != NULL, "RX frame is NULL");
+			handle_rx_frame(frame);
+		}
+#elif defined(CONFIG_UART_IPC_TX)
+		frame = (ipc_frame_t *)k_fifo_get(&tx_fifo, get_poll_timeout());
+		if (!defined(CONFIG_UART_IPC_PING) || (frame != NULL)) {
+			__ASSERT(frame != NULL, "TX frame is NULL");
+			handle_tx_frame(frame);
+		}
+#endif /* CONFIG_UART_IPC_FULL */
+
 #if defined(CONFIG_UART_IPC_PING)
 		/* if k_poll() returned 0, then we (also) need to check if we need to
 		 * send a ping frame
 		 */
 		if (delay_ms_to_next_ping() == 0U) {
-			ipc_frame_t *frame;
 			if (alloc_frame(&frame) == 0) {
 				build_ping_frame(frame);
 
-				if (handle_tx_frame(frame) == 0U) {
+				if (handle_tx_frame(frame, true) == 0U) {
 					STATS_PING_INC_TX();
-					LOG_INF("Ping frame sent");
 				} else {
 					LOG_WRN("Failed to send ping, ret: %d", ret);
 				}
@@ -661,15 +698,6 @@ static void ipc_thread(void *_a, void *_b, void *_c)
 		}
 #endif /* CONFIG_UART_IPC_PING */
 
-#elif defined(CONFIG_UART_IPC_RX)
-		frame = (ipc_frame_t *)k_fifo_get(&rx_fifo, K_FOREVER);
-		__ASSERT(frame != NULL, "RX frame is NULL");
-		handle_rx_frame(frame);
-#elif defined(CONFIG_UART_IPC_TX)
-		frame = (ipc_frame_t *)k_fifo_get(&tx_fifo, K_FOREVER);
-		__ASSERT(frame != NULL, "TX frame is NULL");
-		handle_tx_frame(frame);
-#endif /* CONFIG_UART_IPC_FULL */
 	}
 }
 
