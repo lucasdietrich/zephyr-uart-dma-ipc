@@ -145,8 +145,8 @@ static inline k_timeout_t get_poll_timeout(void)
 
 static void build_ping_frame(ipc_frame_t *frame)
 {
-	frame->seq = IPC_PING;
-	frame->data.size = 0;
+	frame->ver = IPC_FRAME_TYPE_PING;
+	frame->data.size = 0U;
 }
 
 #else 
@@ -199,6 +199,7 @@ static void reset_stats(void)
 #define STATS_TX_INC_BYTES_BY(value) STATS_INC_BY(tx.bytes, value)
 #define STATS_TX_INC_FRAMES() STATS_INC(tx.frames)
 #define STATS_TX_INC_RETRIES() STATS_INC(tx.retries)
+#define STATS_TX_INC_ERRORS() STATS_INC(tx.errors)
 
 #if defined(CONFIG_UART_IPC_PING)
 
@@ -224,6 +225,7 @@ static void reset_stats(void)
 #define STATS_TX_INC_BYTES_BY(value)
 #define STATS_TX_INC_FRAMES()
 #define STATS_TX_INC_RETRIES()
+#define STATS_TX_INC_ERRORS()
 
 #define STATS_PING_INC_RX()
 #define STATS_PING_INC_TX()
@@ -457,12 +459,6 @@ static union {
 #endif
 
 #if defined(CONFIG_UART_IPC_RX) || defined(CONFIG_UART_IPC_FULL)
-static bool frame_is_ping(ipc_frame_t *frame)
-{
-	/* frame is assumed to be valid */
-	return frame->seq == IPC_PING;
-}
-
 static int handle_rx_frame(ipc_frame_t *frame)
 {
 	int ret = -1;
@@ -482,17 +478,8 @@ static int handle_rx_frame(ipc_frame_t *frame)
 		goto exit;
 	}
 
-	/* check if ping */
-	if (frame_is_ping(frame)) {
-#if defined(CONFIG_UART_IPC_PING)
-		ping_ctx.rx_ms = k_uptime_get_32();
-		STATS_PING_INC_RX();
-#endif /* defined(CONFIG_UART_IPC_PING) */
-		
-		goto exit;
-
 	/* compare and update sequence number */
-	} else if (frame->seq > rx_seq + 1) {
+	if (frame->seq > rx_seq + 1) {
 		STATS_RX_INC_SEQ_GAP();
 		STATS_RX_INC_FRAMES_LOST(frame->seq - rx_seq - 1U);
 		LOG_WRN("Seq gap %u -> %u, %u frames lost", rx_seq,
@@ -503,7 +490,16 @@ static int handle_rx_frame(ipc_frame_t *frame)
 			rx_seq, frame->seq);
 	}
 
-	/* dispatch frame to application */
+	/* check if ping */
+#if defined(CONFIG_UART_IPC_PING)
+	if (frame->ver == IPC_FRAME_TYPE_PING) {
+		ping_ctx.rx_ms = k_uptime_get_32();
+		STATS_PING_INC_RX();
+		goto exit;
+	}
+#endif /* defined(CONFIG_UART_IPC_PING) */
+
+	/* otherwise dispatch frame to application */
 	if (rx_mxgq != NULL) {
 		ret = k_msgq_put(rx_mxgq, frame, K_NO_WAIT);
 		if (ret != 0) {
@@ -530,38 +526,6 @@ exit:
 
 #if defined(CONFIG_UART_IPC_TX) || defined(CONFIG_UART_IPC_FULL)
 
-static int send_frame(ipc_frame_t *frame, bool retry)
-{
-	int ret;
-
-	/* wait for tx finish */
-	k_sem_take(&tx_sem, K_FOREVER);
-
-	/* send frame */
-	ret = uart_tx(uart_dev, (const uint8_t *)frame,
-		      IPC_FRAME_SIZE, 0);
-	if (ret == 0) {
-		/* show frame being sent */
-		ipc_log_frame(frame, IPC_DIRECTION_TX);
-
-		/* increment sequence number */
-		tx_seq++;
-
-		STATS_TX_INC_FRAMES();
-	} else {
-		LOG_ERR("uart_tx failed = %d", ret);
-
-		if (retry == true) {
-		/* retry on failure */
-			queue_tx_frame(frame);
-
-			STATS_TX_INC_RETRIES();
-		}
-	}
-
-	return ret;
-}
-
 static void prepare_frame(ipc_frame_t *frame, uint32_t sequence_number)
 {
 	frame->start_delimiter = IPC_START_FRAME_DELIMITER;
@@ -583,12 +547,41 @@ static void prepare_frame(ipc_frame_t *frame, uint32_t sequence_number)
 	frame->crc32 = ipc_frame_crc32(frame);
 }
 
-static int handle_tx_frame(ipc_frame_t *frame, bool isping)
+static int handle_tx_frame(ipc_frame_t *frame, bool retry)
 {
 	/* prepare IPC frame, sfd, efd, crc32, ... */
-	prepare_frame(frame, isping ? IPC_PING : tx_seq);
+	prepare_frame(frame, tx_seq);
 
-	return send_frame(frame, !isping);
+	int ret;
+
+	/* wait for tx finish */
+	k_sem_take(&tx_sem, K_FOREVER);
+
+	/* send frame */
+	ret = uart_tx(uart_dev, (const uint8_t *)frame,
+		      IPC_FRAME_SIZE, 0);
+	if (ret == 0) {
+		/* show frame being sent */
+		ipc_log_frame(frame, IPC_DIRECTION_TX);
+
+		/* increment sequence number */
+		tx_seq++;
+
+		STATS_TX_INC_FRAMES();
+	} else {
+		LOG_ERR("uart_tx failed = %d", ret);
+
+		/* retry on failure */
+		if (retry == true) {
+			queue_tx_frame(frame);
+
+			STATS_TX_INC_RETRIES();
+		} else {
+			STATS_TX_INC_ERRORS();
+		}
+	}
+
+	return ret;
 }
 #endif /* CONFIG_UART_IPC_TX */
 
@@ -683,18 +676,17 @@ static void ipc_thread(void *_a, void *_b, void *_c)
 		/* if k_poll() returned 0, then we (also) need to check if we need to
 		 * send a ping frame
 		 */
-		if (delay_ms_to_next_ping() == 0U) {
-			if (alloc_frame(&frame) == 0) {
-				build_ping_frame(frame);
+		if ((delay_ms_to_next_ping() == 0U) &&
+		    (alloc_frame(&frame) == 0)) {
+			build_ping_frame(frame);
 
-				if (handle_tx_frame(frame, true) == 0U) {
-					STATS_PING_INC_TX();
-				} else {
-					LOG_WRN("Failed to send ping, ret: %d", ret);
-				}
-
-				ping_ctx.tx_ms = k_uptime_get_32();
+			if (handle_tx_frame(frame, true) == 0U) {
+				STATS_PING_INC_TX();
+			} else {
+				LOG_WRN("Failed to send ping, ret: %d", ret);
 			}
+
+			ping_ctx.tx_ms = k_uptime_get_32();
 		}
 #endif /* CONFIG_UART_IPC_PING */
 

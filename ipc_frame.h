@@ -29,14 +29,39 @@
 #define IPC_FRAME_SIZE sizeof(ipc_frame_t)
 
 typedef struct {
-	uint32_t size;
+	uint16_t size;
 	uint8_t buf[IPC_MAX_DATA_SIZE];
 } __attribute__((packed)) ipc_data_t;
 
+enum {
+	IPC_FRAME_TYPE_DATA = 0,
+	IPC_FRAME_TYPE_PING,
+};
+
 typedef struct {
+	/**
+	 * @brief Start frame delimiter, 0xAAAAAAAAU
+	 */
 	uint32_t start_delimiter;
+
+	/**
+	 * @brief Sequence number of the frame
+	 */
 	uint32_t seq;
+
+	/**
+	 * @brief Version/type of the frame
+	 */
+	uint16_t ver;
+
+	/**
+	 * @brief Size and data in the frame
+	 */
 	ipc_data_t data;
+
+	/**
+	 * @brief CRC32 checksum
+	 */
 	uint32_t crc32;
 } __attribute__((packed)) ipc_frame_t;
 

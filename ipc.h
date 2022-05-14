@@ -38,6 +38,7 @@ struct ipc_stats {
 		uint32_t bytes;
 		uint32_t frames;
 		uint32_t retries;
+		uint32_t errors;
 	} tx;
 #endif
 #if defined(CONFIG_UART_IPC_PING)
