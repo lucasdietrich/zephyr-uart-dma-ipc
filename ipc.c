@@ -116,6 +116,54 @@ static struct {
 
 #endif /* UART_IPC_RX */
 
+// PING
+#if defined(CONFIG_UART_IPC_PING)
+
+struct ipc_ping_context {
+	uint32_t rx_ms; /* time of last rx ping */
+	uint32_t tx_ms; /* time of last tx ping */
+};
+
+static struct ipc_ping_context ping_ctx;
+
+static uint32_t delay_ms_to_next_ping(void) {
+	const uint32_t now = k_uptime_get_32();
+	const uint32_t diff = now - ping_ctx.tx_ms;
+	uint32_t delay_ms = 0U;
+
+	if (diff < CONFIG_UART_IPC_PING_PERIOD) {
+		delay_ms = CONFIG_UART_IPC_PING_PERIOD - diff;
+	}
+
+	return delay_ms;
+}
+
+static inline k_timeout_t get_poll_timeout(void)
+{
+	return K_MSEC(delay_ms_to_next_ping());
+}
+
+static void build_ping_frame(ipc_frame_t *frame)
+{
+	frame->seq = IPC_PING;
+	frame->data.size = 0;
+}
+
+#else 
+
+static inline k_timeout_t get_poll_timeout(void)
+{
+	return K_FOREVER;
+}
+
+#endif /* CONFIG_UART_IPC_PING */
+
+static bool frame_is_ping(ipc_frame_t *frame)
+{
+	/* frame is assumed to be valid */
+	return frame->seq == IPC_PING;
+}
+
 // TX
 #if defined(CONFIG_UART_IPC_TX) || defined(CONFIG_UART_IPC_FULL)
 static K_SEM_DEFINE(tx_sem, 1, 1);
@@ -314,7 +362,6 @@ static void uart_callback(const struct device *dev,
 	case UART_TX_DONE:
 		free_frame((ipc_frame_t **)&evt->data);
 		k_sem_give(&tx_sem);
-		STATS_TX_INC_FRAMES();
 		STATS_TX_INC_BYTES_BY(evt->data.tx.len);
 		break;
 	case UART_TX_ABORTED:
@@ -423,27 +470,22 @@ static int handle_rx_frame(ipc_frame_t *frame)
 
 	/* verify crc32 */
 	const uint32_t crc32 = ipc_frame_crc32(frame);
-	if (crc32 == frame->crc32) {
-		/* dispatch frame to application */
-		if (rx_mxgq != NULL) {
-			ret = k_msgq_put(rx_mxgq, frame, K_NO_WAIT);
-			if (ret != 0) {
-				STATS_RX_INC_DROPPED_FRAMES();
-				LOG_WRN("Provided user msgq is full, dropping frame %p",
-					frame);
-			}
-		} else {
-			STATS_RX_INC_DROPPED_FRAMES();
-			LOG_WRN("No user msgq provided, dropping frame %p", frame);
-		}
-	} else {
+	if (crc32 != frame->crc32) {
 		STATS_RX_INC_CRC_ERRORS();
 		LOG_ERR("CRC32 mismatch: %x != %x", crc32, frame->crc32);
 		goto exit;
 	}
 
+	/* check if ping */
+	if (frame_is_ping(frame)) {
+		LOG_INF("Received ping");
+
+		ping_ctx.rx_ms = k_uptime_get_32();
+		STATS_PING_INC_RX();
+		goto exit;
+
 	/* compare and update sequence number */
-	if (frame->seq > rx_seq + 1) {
+	} else if (frame->seq > rx_seq + 1) {
 		STATS_RX_INC_SEQ_GAP();
 		STATS_RX_INC_FRAMES_LOST(frame->seq - rx_seq - 1U);
 		LOG_WRN("Seq gap %u -> %u, %u frames lost", rx_seq,
@@ -453,6 +495,20 @@ static int handle_rx_frame(ipc_frame_t *frame)
 		LOG_WRN("Seq rollback from %u to %u, peer probably reseted",
 			rx_seq, frame->seq);
 	}
+
+	/* dispatch frame to application */
+	if (rx_mxgq != NULL) {
+		ret = k_msgq_put(rx_mxgq, frame, K_NO_WAIT);
+		if (ret != 0) {
+			STATS_RX_INC_DROPPED_FRAMES();
+			LOG_WRN("Provided user msgq is full, dropping frame %p",
+				frame);
+		}
+	} else {
+		STATS_RX_INC_DROPPED_FRAMES();
+		LOG_WRN("No user msgq provided, dropping frame %p", frame);
+	}
+
 	rx_seq = frame->seq;
 
 	/* show if valid */
@@ -506,6 +562,8 @@ static int handle_tx_frame(ipc_frame_t *frame)
 
 		/* increment sequence number */
 		tx_seq++;
+
+		STATS_TX_INC_FRAMES();
 	} else {
 		LOG_ERR("uart_tx failed = %d", ret);
 
@@ -563,8 +621,8 @@ static void ipc_thread(void *_a, void *_b, void *_c)
 
 	for (;;) {
 #if defined(CONFIG_UART_IPC_FULL)
-		ret = k_poll(events.array, ARRAY_SIZE(events.array), K_FOREVER);
-		if (ret >= 0) {
+		ret = k_poll(events.array, ARRAY_SIZE(events.array), get_poll_timeout());
+		if (ret > 0) {
 			if (events.rx_ev.state == K_POLL_STATE_FIFO_DATA_AVAILABLE) {
 				frame = (ipc_frame_t *)k_fifo_get(&rx_fifo, K_NO_WAIT);
 				__ASSERT(frame != NULL, "RX frame is NULL");
@@ -577,10 +635,32 @@ static void ipc_thread(void *_a, void *_b, void *_c)
 				handle_tx_frame(frame);
 			}
 			events.tx_ev.state = K_POLL_STATE_NOT_READY;
-		} else {
+		} else if (ret < 0) {
 			LOG_ERR("k_poll() failed %d", ret);
 			return;
 		}
+
+#if defined(CONFIG_UART_IPC_PING)
+		/* if k_poll() returned 0, then we (also) need to check if we need to
+		 * send a ping frame
+		 */
+		if ((ret == 0) || (delay_ms_to_next_ping() == 0U)) {
+			ipc_frame_t *frame;
+			if (alloc_frame(&frame) == 0) {
+				build_ping_frame(frame);
+
+				if (handle_tx_frame(frame) == 0U) {
+					STATS_PING_INC_TX();
+					LOG_INF("Ping frame sent");
+				} else {
+					LOG_WRN("Failed to send ping, ret: %d", ret);
+				}
+
+				ping_ctx.tx_ms = k_uptime_get_32();
+			}
+		}
+#endif /* CONFIG_UART_IPC_PING */
+
 #elif defined(CONFIG_UART_IPC_RX)
 		frame = (ipc_frame_t *)k_fifo_get(&rx_fifo, K_FOREVER);
 		__ASSERT(frame != NULL, "RX frame is NULL");

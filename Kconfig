@@ -67,6 +67,13 @@ config UART_IPC_PING
 	help
 		Enable ping support (requires UART_IPC_FULL RX and TX)
 
+config UART_IPC_PING_PERIOD
+	int "Ping period in milliseconds"
+	default 1000
+	depends on UART_IPC_PING
+	help
+		Ping period in milliseconds (ms)
+
 config UART_IPC_STATS
 	bool "Enable stats"
 	default n
