@@ -158,12 +158,6 @@ static inline k_timeout_t get_poll_timeout(void)
 
 #endif /* CONFIG_UART_IPC_PING */
 
-static bool frame_is_ping(ipc_frame_t *frame)
-{
-	/* frame is assumed to be valid */
-	return frame->seq == IPC_PING;
-}
-
 // TX
 #if defined(CONFIG_UART_IPC_TX) || defined(CONFIG_UART_IPC_FULL)
 static K_SEM_DEFINE(tx_sem, 1, 1);
@@ -457,6 +451,12 @@ static union {
 #endif
 
 #if defined(CONFIG_UART_IPC_RX) || defined(CONFIG_UART_IPC_FULL)
+static bool frame_is_ping(ipc_frame_t *frame)
+{
+	/* frame is assumed to be valid */
+	return frame->seq == IPC_PING;
+}
+
 static int handle_rx_frame(ipc_frame_t *frame)
 {
 	int ret = -1;
