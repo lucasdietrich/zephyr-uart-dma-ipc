@@ -635,7 +635,7 @@ static void ipc_thread(void *_a, void *_b, void *_c)
 				handle_tx_frame(frame);
 			}
 			events.tx_ev.state = K_POLL_STATE_NOT_READY;
-		} else if (ret < 0) {
+		} else if ((ret < 0) && (ret != -EAGAIN)) {
 			LOG_ERR("k_poll() failed %d", ret);
 			return;
 		}
@@ -644,7 +644,7 @@ static void ipc_thread(void *_a, void *_b, void *_c)
 		/* if k_poll() returned 0, then we (also) need to check if we need to
 		 * send a ping frame
 		 */
-		if ((ret == 0) || (delay_ms_to_next_ping() == 0U)) {
+		if (delay_ms_to_next_ping() == 0U) {
 			ipc_frame_t *frame;
 			if (alloc_frame(&frame) == 0) {
 				build_ping_frame(frame);
