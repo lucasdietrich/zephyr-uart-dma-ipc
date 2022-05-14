@@ -59,3 +59,17 @@ config UART_IPC_FULL
 		Enable RX and TX support
 
 endchoice
+
+config UART_IPC_PING
+	bool "Enable ping support"
+	default n
+	depends on UART_IPC_FULL
+	help
+		Enable ping support (requires UART_IPC_FULL RX and TX)
+
+config UART_IPC_STATS
+	bool "Enable stats"
+	default n
+	depends on UART_IPC
+	help
+		Enable stats for the IPC interface (packet loss, etc.)

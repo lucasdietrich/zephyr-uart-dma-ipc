@@ -44,8 +44,6 @@ LOG_MODULE_REGISTER(ipc, LOG_LEVEL_WRN);
 
 #endif
 
-
-
 // drivers
 #define IPC_UART_NODE DT_ALIAS(ipc_uart)
 static const struct device *uart_dev = DEVICE_DT_GET(IPC_UART_NODE);
@@ -101,7 +99,7 @@ typedef enum {
 	PARSING_FRAME_DATA,
 } parsing_state_t;
 
-// parsing context
+// PARSING CONTEXT
 static struct {
 	parsing_state_t state;
 	size_t remaining;
@@ -133,8 +131,58 @@ static inline void queue_tx_frame(ipc_frame_t *frame)
 }
 #endif /* UART_IPC_RX */
 
-// statistics and debug to debug functions in ISR context especially
-// TODO
+// STATISTICS
+#if defined(CONFIG_UART_IPC_STATS)
+__attribute__((section(".bss"))) static struct ipc_stats stats;
+
+static void reset_stats(void)
+{
+	memset(&stats, 0, sizeof(stats));
+}
+
+#define STATS_INC(field) stats.field++
+#define STATS_INC_BY(field, value) stats.field += value
+#define STATS_INC_IF(field, condition) if (condition) { stats.field++; }
+
+#define STATS_RX_INC_BYTES_BY(value) STATS_INC_BY(rx.bytes, value)
+#define STATS_RX_INC_FRAMES() STATS_INC(rx.frames)
+#define STATS_RX_INC_DISCARDED_BYTES_BY(value) STATS_INC_BY(rx.discarded_bytes, value)
+#define STATS_RX_INC_MALFORMED() STATS_INC(rx.malformed)
+#define STATS_RX_INC_CRC_ERRORS() STATS_INC(rx.crc_errors)
+#define STATS_RX_INC_SEQ_GAP() STATS_INC(rx.seq_gap)
+#define STATS_RX_INC_FRAMES_LOST(value) STATS_INC_BY(rx.frames_lost, value)
+#define STATS_RX_INC_SEQ_RESET() STATS_INC(rx.seq_reset)
+#define STATS_RX_INC_DROPPED_FRAMES() STATS_INC(rx.dropped_frames)
+
+#define STATS_TX_INC_BYTES_BY(value) STATS_INC_BY(tx.bytes, value)
+#define STATS_TX_INC_FRAMES() STATS_INC(tx.frames)
+
+#define STATS_PING_INC_RX() STATS_INC(ping.rx)
+#define STATS_PING_INC_TX() STATS_INC(ping.tx)
+
+#define STATS_MISC_INC_MEM_ALLOC_FAIL() STATS_INC(misc.mem_alloc_fail)
+
+#else
+
+#define STATS_RX_INC_BYTES_BY(value)
+#define STATS_RX_INC_FRAMES()
+#define STATS_RX_INC_DISCARDED_BYTES_BY(value)
+#define STATS_RX_INC_MALFORMED()
+#define STATS_RX_INC_CRC_ERRORS()
+#define STATS_RX_INC_SEQ_GAP()
+#define STATS_RX_INC_FRAMES_LOST(value)
+#define STATS_RX_INC_SEQ_RESET()
+#define STATS_RX_INC_DROPPED_FRAMES()
+
+#define STATS_TX_INC_BYTES_BY(value)
+#define STATS_TX_INC_FRAMES()
+
+#define STATS_PING_INC_RX()
+#define STATS_PING_INC_TX()
+
+#define STATS_MISC_INC_MEM_ALLOC_FAIL()
+
+#endif
 
 #if defined(CONFIG_UART_IPC_RX) || defined(CONFIG_UART_IPC_FULL)
 int ipc_attach_rx_msgq(struct k_msgq *msgq)
@@ -177,11 +225,13 @@ static void handle_received_chunk(const uint8_t *data, size_t size)
 				/* first byte of the start frame
 				 * delimiter not found in the chuck
 				 */
+				STATS_RX_INC_MALFORMED();
 				goto discard_rest;
 			}
 
 			if (ctx.frame == NULL) {
 				if (alloc_frame(&ctx.frame) != 0) {
+					STATS_MISC_INC_MEM_ALLOC_FAIL();
 					goto discard_rest;
 				}
 			}
@@ -221,6 +271,9 @@ static void handle_received_chunk(const uint8_t *data, size_t size)
 			ctx.remaining -= tocopy;
 
 			if (ctx.remaining == 0U) {
+				STATS_RX_INC_BYTES_BY(ctx.filling);
+				STATS_RX_INC_FRAMES();
+
 				/* Pass the detected frame to the processing thread by
 				* the FIFO
 				* Note: As queuing a buffer to a FIFO requires
@@ -244,6 +297,7 @@ static void handle_received_chunk(const uint8_t *data, size_t size)
 	return;
 
 discard_rest:
+	STATS_RX_INC_DISCARDED_BYTES_BY(size);
 	ctx.state = PARSING_CATCH_FRAME;
 	__DEBUG_RX_HANDLER_EXIT();
 	return;
@@ -260,6 +314,8 @@ static void uart_callback(const struct device *dev,
 	case UART_TX_DONE:
 		free_frame((ipc_frame_t **)&evt->data);
 		k_sem_give(&tx_sem);
+		STATS_TX_INC_FRAMES();
+		STATS_TX_INC_BYTES_BY(evt->data.tx.len);
 		break;
 	case UART_TX_ABORTED:
 		break;
@@ -360,6 +416,7 @@ static int handle_rx_frame(ipc_frame_t *frame)
 	
 	/* verify length */
 	if(frame->data.size > IPC_MAX_DATA_SIZE) {
+		STATS_RX_INC_MALFORMED();
 		LOG_ERR("Invalid data size = %u", frame->data.size);
 		goto exit;
 	}
@@ -371,22 +428,28 @@ static int handle_rx_frame(ipc_frame_t *frame)
 		if (rx_mxgq != NULL) {
 			ret = k_msgq_put(rx_mxgq, frame, K_NO_WAIT);
 			if (ret != 0) {
+				STATS_RX_INC_DROPPED_FRAMES();
 				LOG_WRN("Provided user msgq is full, dropping frame %p",
 					frame);
 			}
 		} else {
+			STATS_RX_INC_DROPPED_FRAMES();
 			LOG_WRN("No user msgq provided, dropping frame %p", frame);
 		}
 	} else {
+		STATS_RX_INC_CRC_ERRORS();
 		LOG_ERR("CRC32 mismatch: %x != %x", crc32, frame->crc32);
 		goto exit;
 	}
 
 	/* compare and update sequence number */
 	if (frame->seq > rx_seq + 1) {
+		STATS_RX_INC_SEQ_GAP();
+		STATS_RX_INC_FRAMES_LOST(frame->seq - rx_seq - 1U);
 		LOG_WRN("Seq gap %u -> %u, %u frames lost", rx_seq,
 			frame->seq, frame->seq - rx_seq - 1);
 	} else if (frame->seq < rx_seq) {
+		STATS_RX_INC_SEQ_RESET();
 		LOG_WRN("Seq rollback from %u to %u, peer probably reseted",
 			rx_seq, frame->seq);
 	}
@@ -571,6 +634,8 @@ int ipc_send_data(const ipc_data_t *data)
 
 		/* queue frame */
 		queue_tx_frame(frame);
+	} else {
+		STATS_MISC_INC_MEM_ALLOC_FAIL();
 	}
 
 	return ret;
@@ -582,5 +647,17 @@ int ipc_allocate_frame(ipc_frame_t **frame)
 }
 
 #endif /* CONFIG_UART_IPC_TX */
+
+#if defined(CONFIG_UART_IPC_STATS)
+void ipc_stats_get(struct ipc_stats *ipc_stats)
+{
+	memcpy(ipc_stats, &stats, sizeof(struct ipc_stats));
+}
+
+void ipc_stats_reset(void)
+{
+	reset_stats();
+}
+#endif /* CONFIG_UART_IPC_STATS */
 
 #endif /* CONFIG_IPC_UART */
