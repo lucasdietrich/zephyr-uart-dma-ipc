@@ -705,6 +705,11 @@ int ipc_send_frame(ipc_frame_t *frame)
 	int ret = -EINVAL;
 
 	if (frame != NULL) {
+		/* TODO remove: forcing frame type to DATA when sent
+		* from the application
+		*/
+		frame->ver = IPC_FRAME_TYPE_DATA;
+	
 		queue_tx_frame(frame);
 		ret = 0;
 	}
@@ -737,6 +742,7 @@ int ipc_send_data(const ipc_data_t *data)
 		/* copy data */
 		memcpy(frame->data.buf, data->buf, size);
 		frame->data.size = size;
+		frame->ver = IPC_FRAME_TYPE_DATA;
 
 		/* queue frame */
 		queue_tx_frame(frame);
