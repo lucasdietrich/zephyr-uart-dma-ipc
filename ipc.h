@@ -91,8 +91,36 @@ int ipc_send_frame(ipc_frame_t *frame);
  */
 void ipc_free_frame(ipc_frame_t **frame);
 
+/**
+ * @brief Retrieve the stats of the IPC module.
+ * 
+ * @param stats 
+ */
 void ipc_stats_get(struct ipc_stats *stats);
 
+/**
+ * @brief Reset the stats of the IPC module.
+ */
 void ipc_stats_reset(void);
+
+typedef enum {
+	IPC_LL_FRAME_RECEIVED = 1,
+	IPC_DATA_FRAME_RECEIVED,
+	IPC_PING_FRAME_RECEIVED,
+
+	IPC_LL_FRAME_SENT,
+} ipc_event_t;
+
+typedef void (*ipc_event_handler_t)(ipc_event_t event,
+				    void *data);
+
+/**
+ * @brief Allow the user to register an event handler for some events.
+ * 
+ * @param handler 
+ * @param user_data 
+ */
+void ipc_register_event_callback(ipc_event_handler_t handler,
+				 void *user_data);
 
 #endif /* _IPC_H_ */

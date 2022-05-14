@@ -234,6 +234,32 @@ static void reset_stats(void)
 
 #endif
 
+// EVENT API
+#if defined(CONFIG_UART_IPC_EVENT_API)
+
+static ipc_event_handler_t event_handler = NULL;
+static void *event_handler_user_data = NULL;
+
+void ipc_register_event_callback(ipc_event_handler_t handler,
+				 void *user_data)
+{
+	event_handler = handler;
+	event_handler_user_data = user_data;
+}
+
+static void ipc_event(ipc_event_t ev)
+{
+	if (event_handler != NULL) {
+		event_handler(ev, event_handler_user_data);
+	}
+}
+
+#else
+
+static inline void ipc_event(ipc_event_t ev) { }
+
+#endif /* CONFIG_UART_IPC_EVENT_API */
+
 #if defined(CONFIG_UART_IPC_RX) || defined(CONFIG_UART_IPC_FULL)
 int ipc_attach_rx_msgq(struct k_msgq *msgq)
 {
@@ -498,16 +524,20 @@ static int handle_rx_frame(ipc_frame_t *frame)
 	/* update sequence number */
 	rx_seq = frame->seq;
 
+	ipc_event(IPC_LL_FRAME_RECEIVED);
+
 	/* check if ping */
 #if defined(CONFIG_UART_IPC_PING)
 	if (frame->ver == IPC_FRAME_TYPE_PING) {
 		ping_ctx.rx_ms = k_uptime_get_32();
 		STATS_PING_INC_RX();
+		ipc_event(IPC_PING_FRAME_RECEIVED);
 		goto exit;
 	}
 #endif /* defined(CONFIG_UART_IPC_PING) */
 
 	/* otherwise dispatch frame to application */
+	ipc_event(IPC_DATA_FRAME_RECEIVED);
 	if (rx_mxgq != NULL) {
 		ret = k_msgq_put(rx_mxgq, frame, K_NO_WAIT);
 		if (ret != 0) {
@@ -574,6 +604,8 @@ static int handle_tx_frame(ipc_frame_t *frame, bool retry)
 		tx_seq++;
 
 		STATS_TX_INC_FRAMES();
+
+		ipc_event(IPC_LL_FRAME_SENT);
 	} else {
 		LOG_ERR("uart_tx failed = %d", ret);
 

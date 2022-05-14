@@ -80,3 +80,10 @@ config UART_IPC_STATS
 	depends on UART_IPC
 	help
 		Enable stats for the IPC interface (packet loss, etc.)
+
+config UART_IPC_EVENT_API
+	bool "Enable event API"
+	default n
+	depends on UART_IPC
+	help
+		Enable event API
