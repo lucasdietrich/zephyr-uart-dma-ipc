@@ -31,6 +31,7 @@ struct ipc_stats {
 		uint32_t frames_lost;
 		uint32_t seq_reset; /* sequence number reset (due to peer reset for example) */
 		uint32_t dropped_frames; /* frame dropped due to RX overrun or RX msgq not set */
+		uint32_t unsupported_ver;
 	} rx;
 #endif
 #if defined(CONFIG_UART_IPC_TX) || defined(CONFIG_UART_IPC_FULL)
@@ -41,12 +42,11 @@ struct ipc_stats {
 		uint32_t errors;
 	} tx;
 #endif
-#if defined(CONFIG_UART_IPC_PING)
 	struct {
 		uint32_t rx;
 		uint32_t tx;
 	} ping;
-#endif
+	
 	struct {
 		uint32_t mem_alloc_fail; /* allocation errors */
 	} misc;

@@ -14,7 +14,7 @@
 #if defined(CONFIG_UART_IPC)
 
 #include <logging/log.h>
-LOG_MODULE_REGISTER(ipc, LOG_LEVEL_DBG);
+LOG_MODULE_REGISTER(ipc, LOG_LEVEL_INF);
 
 // TODO monitor usage using CONFIG_MEM_SLAB_TRACE_MAX_UTILIZATION
 
@@ -195,18 +195,15 @@ static void reset_stats(void)
 #define STATS_RX_INC_FRAMES_LOST(value) STATS_INC_BY(rx.frames_lost, value)
 #define STATS_RX_INC_SEQ_RESET() STATS_INC(rx.seq_reset)
 #define STATS_RX_INC_DROPPED_FRAMES() STATS_INC(rx.dropped_frames)
+#define STATS_RX_INC_UNSUPPORTED_VER() STATS_INC(rx.unsupported_ver)
 
 #define STATS_TX_INC_BYTES_BY(value) STATS_INC_BY(tx.bytes, value)
 #define STATS_TX_INC_FRAMES() STATS_INC(tx.frames)
 #define STATS_TX_INC_RETRIES() STATS_INC(tx.retries)
 #define STATS_TX_INC_ERRORS() STATS_INC(tx.errors)
 
-#if defined(CONFIG_UART_IPC_PING)
-
 #define STATS_PING_INC_RX() STATS_INC(ping.rx)
 #define STATS_PING_INC_TX() STATS_INC(ping.tx)
-
-#endif /* defined(CONFIG_UART_IPC_PING) */
 
 #define STATS_MISC_INC_MEM_ALLOC_FAIL() STATS_INC(misc.mem_alloc_fail)
 
@@ -221,6 +218,7 @@ static void reset_stats(void)
 #define STATS_RX_INC_FRAMES_LOST(value)
 #define STATS_RX_INC_SEQ_RESET()
 #define STATS_RX_INC_DROPPED_FRAMES()
+#define STATS_RX_INC_UNSUPPORTED_VER()
 
 #define STATS_TX_INC_BYTES_BY(value)
 #define STATS_TX_INC_FRAMES()
@@ -526,32 +524,33 @@ static int handle_rx_frame(ipc_frame_t *frame)
 
 	ipc_event(IPC_LL_FRAME_RECEIVED);
 
-	/* check if ping */
-#if defined(CONFIG_UART_IPC_PING)
-	if (frame->ver == IPC_FRAME_TYPE_PING) {
-		ping_ctx.rx_ms = k_uptime_get_32();
-		STATS_PING_INC_RX();
-		ipc_event(IPC_PING_FRAME_RECEIVED);
-		goto exit;
-	}
-#endif /* defined(CONFIG_UART_IPC_PING) */
-
-	/* otherwise dispatch frame to application */
-	ipc_event(IPC_DATA_FRAME_RECEIVED);
-	if (rx_mxgq != NULL) {
-		ret = k_msgq_put(rx_mxgq, frame, K_NO_WAIT);
-		if (ret != 0) {
-			STATS_RX_INC_DROPPED_FRAMES();
-			LOG_WRN("Provided user msgq is full, dropping frame %p",
-				frame);
-		}
-	} else {
-		STATS_RX_INC_DROPPED_FRAMES();
-		LOG_WRN("No user msgq provided, dropping frame %p", frame);
-	}
-
 	/* show if valid */
 	ipc_log_frame(frame, IPC_DIRECTION_RX);
+
+	/* check if ping */
+	if (frame->ver == IPC_FRAME_TYPE_PING) {
+#if defined(CONFIG_UART_IPC_PING)
+		ping_ctx.rx_ms = k_uptime_get_32();
+#endif /* defined(CONFIG_UART_IPC_PING) */
+		STATS_PING_INC_RX();
+		ipc_event(IPC_PING_FRAME_RECEIVED);
+	} else if (frame->ver == IPC_FRAME_TYPE_DATA) {
+		/* otherwise dispatch frame to application */
+		ipc_event(IPC_DATA_FRAME_RECEIVED);
+		if (rx_mxgq != NULL) {
+			ret = k_msgq_put(rx_mxgq, frame, K_NO_WAIT);
+			if (ret != 0) {
+				STATS_RX_INC_DROPPED_FRAMES();
+				LOG_WRN("Provided user msgq is full, dropping frame %p",
+					frame);
+			}
+		} else {
+			STATS_RX_INC_DROPPED_FRAMES();
+			LOG_WRN("No user msgq provided, dropping frame %p", frame);
+		}
+	} else {
+		STATS_RX_INC_UNSUPPORTED_VER();
+	}
 
 exit:
 	free_frame(&frame);
@@ -698,14 +697,12 @@ static void ipc_thread(void *_a, void *_b, void *_c)
 
 #elif defined(CONFIG_UART_IPC_RX)
 		frame = (ipc_frame_t *)k_fifo_get(&rx_fifo, get_poll_timeout());
-		if (!defined(CONFIG_UART_IPC_PING) || (frame != NULL)) {
-			__ASSERT(frame != NULL, "RX frame is NULL");
+		if (frame != NULL) {
 			handle_rx_frame(frame);
 		}
 #elif defined(CONFIG_UART_IPC_TX)
 		frame = (ipc_frame_t *)k_fifo_get(&tx_fifo, get_poll_timeout());
-		if (!defined(CONFIG_UART_IPC_PING) || (frame != NULL)) {
-			__ASSERT(frame != NULL, "TX frame is NULL");
+		if (frame != NULL) {
 			handle_tx_frame(frame);
 		}
 #endif /* CONFIG_UART_IPC_FULL */
@@ -727,7 +724,6 @@ static void ipc_thread(void *_a, void *_b, void *_c)
 			ping_ctx.tx_ms = k_uptime_get_32();
 		}
 #endif /* CONFIG_UART_IPC_PING */
-
 	}
 }
 
