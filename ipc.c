@@ -703,7 +703,7 @@ static void ipc_thread(void *_a, void *_b, void *_c)
 #elif defined(CONFIG_UART_IPC_TX)
 		frame = (ipc_frame_t *)k_fifo_get(&tx_fifo, get_poll_timeout());
 		if (frame != NULL) {
-			handle_tx_frame(frame);
+			handle_tx_frame(frame, true);
 		}
 #endif /* CONFIG_UART_IPC_FULL */
 
