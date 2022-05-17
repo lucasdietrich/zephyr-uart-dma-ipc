@@ -13,17 +13,22 @@ Note: This module requires the polling API `CONFIG_POLL` to be enabled when both
 The `Kconfig` file should be included in your application using the `rsource` directive in the application `Kconfig` file: 
 - e.g. `rsource "src/uart_ipc/Kconfig"` at the beginning of the application `Kconfig` file (in application root directory).
 
-| configuration option            | user assignable | type   | default | description                             |
-| ------------------------------- | --------------- | ------ | ------- | --------------------------------------- |
-| UART\_IPC                       | no              | bool   | false   | Enable support for IPC over UART.       |
-| UART\_IPC\_STACK\_SIZE          | yes             | int    | 512     | Adjust stack size                       |
-| UART\_IPC\_FRAME\_BUFFER\_COUNT | yes             | y      | 3       | Adjust internal memslab messages count. |
-| UART\_IPC\_DMA\_BUF\_SIZE       | yes             | int    | 64      | Adjust internal DMA RX buffer size      |
-| UART\_IPC\_DEBUG\_GPIO          | yes             | bool   | false   | Enable debugging using GPIO pins        |
-| UART\_IPC\_DIR                  | no              | choice | /       | UART IPC direction                      |
-| UART\_IPC\_RX                   | yes             | bool   | /       | Enable RX support                       |
-| UART\_IPC\_TX                   | yes             | bool   | /       | Enable TX support                       |
-| UART\_IPC\_FULL                 | yes             | bool   | /       | Enable RX and TX support                |
+| Configuration option            | User assignable | Type   | Default | Description                                                                                                                                 |
+| ------------------------------- | --------------- | ------ | ------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| UART\_IPC                       | no              | bool   | false   | Enable support for IPC over UART.                                                                                                           |
+| UART\_IPC\_STACK\_SIZE          | yes             | int    | 512     | Adjust stack size                                                                                                                           |
+| UART\_IPC\_FRAME\_BUFFER\_COUNT | yes             | y      | 3       | Adjust internal memslab messages count.<br>\- One for currently being receiving RX frame<br>\- One for being sent TX frame                  |
+| UART\_IPC\_DMA\_BUF\_SIZE       | yes             | int    | 68      | Adjust internal DMA RX buffer size, using a low value might cause performance issues,<br>using a high value implies a big memory footprint. |
+| UART\_IPC\_DEBUG\_GPIO\_STM32   | yes             | bool   | false   | Enable debugging using GPIO pins on STM32 chips                                                                                             |
+| UART\_IPC\_DEBUG\_GPIO\_NRF     | yes             | bool   | false   | Enable debugging using GPIO pins on NRF chips                                                                                               |
+| UART\_IPC\_DIR                  | no              | choice | /       | UART IPC direction                                                                                                                          |
+| UART\_IPC\_RX                   | yes             | bool   | /       | Enable RX support                                                                                                                           |
+| UART\_IPC\_TX                   | yes             | bool   | /       | Enable TX support                                                                                                                           |
+| UART\_IPC\_FULL                 | yes             | bool   | /       | Enable RX and TX support                                                                                                                    |
+| UART\_IPC\_PING                 | yes             | bool   | no      | Enable ping support for TX direction (implicitely supported for RX)                                                                         |
+| UART\_IPC\_PING\_PERIOD         | yes             | int    | 1000    | Ping period in milliseconds (ms)                                                                                                            |
+| UART\_IPC\_STATS                | yes             | bool   | no      | Enable stats for the IPC interface (packet loss, etc.)                                                                                      |
+| UART\_IPC\_EVENT\_API           | yes             | bool   | no      | Enable event API                                                                                                                            |
 
 ## devicetree
 
@@ -87,13 +92,23 @@ Fixed length frames of 4 + 4 + 4 +256 + 4 = 272 bytes
 Frame format:
 - 4 bytes: start frame delimitor
 - 4 bytes: sequence number
-- 4 bytes: length of the frame
+- 2 bytes: frame version
+- 2 bytes: length of the frame
 - 256 bytes: data
 - 4 bytes: CRC
 
 ![](./pics/uart_ipc.drawio.png)
 
 If actual data size is less than 256 bytes, the remaining bytes are filled with padding (`0x00`). Note that the padding bytes are required because of the CRC calculation.
+
+## Frame version
+
+Frame version aims to keep backward compatibility while enriching this application protocol.
+
+Currently supported versions:
+
+- DATA : Standard application frame (256B)
+- PING : Standard (default) ping frame (256B)
 
 ### CRC calculation
 
@@ -128,12 +143,18 @@ These two projects integrate this protocol :
 Debug using GPIOs is only support on STM32F4 for now
 
 Expected pins states when receiving a 272B long frame with DMA buffers of size 64B :
+
 ![](./pics/ipc_debug_115200_272B_64dma_1ms_timeout.png)
+
+![](./pics/ipc_1mbaud.png)
 
 ## TODO
 - Propose this "module" as an actual Zephyr RTOS module.
 - Implementation without the polling API.
 - Make the data size configurable in the frame.
+- Reduce frame size for ping frame, etc...
+- See how stream can be performed ? (probably not the goal of this protocol)
+- Add a Kconfig option to adjust thread priority
 
 ## Personnal notes
 

@@ -3,16 +3,7 @@
 
 #include <stdint.h>
 
-#define IPC_VERSION 2
-
 #define IPC_MAX_DATA_SIZE 0x100U
-
-#define MONITOR_EXEC 1
-
-/* reason: CRC32 calculation */
-#if IPC_MAX_DATA_SIZE & 0b11 != 0
-#	error "IPC_MAX_DATA_SIZE must be a multiple of 4"
-#endif
 
 #define FILL_UINT32_WITH_BYTE(byte) ((uint32_t) (((byte) & 0xFFU) \
 	| (((byte) & 0xFFU) << 8U) \

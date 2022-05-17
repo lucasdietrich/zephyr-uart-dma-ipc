@@ -17,12 +17,31 @@
 #if defined(CONFIG_UART_IPC)
 
 #include <logging/log.h>
-LOG_MODULE_REGISTER(ipc, LOG_LEVEL_INF);
+LOG_MODULE_REGISTER(ipc, LOG_LEVEL_WRN);
 
 // TODO monitor usage using CONFIG_MEM_SLAB_TRACE_MAX_UTILIZATION
 
 // config
 #define IPC_UART_RX_TIMEOUT_MS 1U
+
+/* UNKNOWN reason for now (todo)
+ * 
+ * Using DMA buffers size not multiple of the IPC frame size are inefficient
+ * (because of the RX timeout) but should work.
+ * 
+ * Receiving from nRF52840 frames of length 272B (256B of payload) 
+ * with an UART configured with  baudrate 115200 and DMA buffers size of 32 bytes, the
+ * frames are received by pair every two frames duration. (i.e. every two 
+ * frames, one frame is delayed by one period).
+ * 
+ * Enabled UART_IPC_DEBUG_GPIO_NRF/STM32 to debug this issue.
+ */
+BUILD_ASSERT(sizeof(ipc_frame_t) % CONFIG_UART_IPC_DMA_BUF_SIZE == 0,
+	     "IPC frame size must be a multiple of DMA buffer size");
+
+/* reason: CRC32 calculation */
+BUILD_ASSERT(IPC_MAX_DATA_SIZE % 4 == 0, 
+	     "IPC_MAX_DATA_SIZE must be a multiple of 4");
 
 #if defined(CONFIG_UART_IPC_DEBUG_GPIO_STM32)
 
@@ -42,13 +61,16 @@ LOG_MODULE_REGISTER(ipc, LOG_LEVEL_INF);
 #elif defined(CONFIG_UART_IPC_DEBUG_GPIO_NRF)
 
 #	define DBG_PIN_1 3U
-#	define DBG_PIN_2 4U
+#	define DBG_PIN_2 29U
+#	define DBG_PIN_3 4U
+#	define DBG_PIN_4 28U
+#	define DBG_PIN_5 30U
 
 #	define __DEBUG_RX() nrf_gpio_pin_toggle(DBG_PIN_1)
-#	define __DEBUG_RX_HANDLER_ENTER()
-#	define __DEBUG_RX_HANDLER_EXIT()
-#	define __DEBUG_RX_FRAME_READY() nrf_gpio_pin_toggle(DBG_PIN_2)
-#	define __DEBUG_TX_FRAME_SENT()
+#	define __DEBUG_RX_HANDLER_ENTER() nrf_gpio_pin_write(DBG_PIN_2, 1U)
+#	define __DEBUG_RX_HANDLER_EXIT() nrf_gpio_pin_write(DBG_PIN_2, 0U)
+#	define __DEBUG_RX_FRAME_READY() nrf_gpio_pin_toggle(DBG_PIN_3)
+#	define __DEBUG_TX_FRAME_SENT() nrf_gpio_pin_toggle(DBG_PIN_4)
 
 #else
 
@@ -305,6 +327,8 @@ static void handle_received_chunk(const uint8_t *data, size_t size)
 {
 	__DEBUG_RX_HANDLER_ENTER();
 
+	// printk("%u\n", size);
+
 	while (size > 0) {
 		switch (ctx.state) {
 		case PARSING_CATCH_FRAME:
@@ -484,7 +508,7 @@ static void ipc_log_frame(const ipc_frame_t *frame, uint8_t direction)
 static void ipc_thread(void *_a, void *_b, void *_c);
 
 K_THREAD_DEFINE(ipc_thread_id, CONFIG_UART_IPC_STACK_SIZE, ipc_thread,
-		NULL, NULL, NULL, K_PRIO_PREEMPT(8), 0, 0);
+		NULL, NULL, NULL, K_PRIO_COOP(5), 0, 0);
 
 #if defined(CONFIG_UART_IPC_FULL)
 static union {
@@ -675,9 +699,15 @@ static void ipc_thread(void *_a, void *_b, void *_c)
 
 	nrf_gpio_pin_dir_set(DBG_PIN_1, NRF_GPIO_PIN_DIR_OUTPUT);
 	nrf_gpio_pin_dir_set(DBG_PIN_2, NRF_GPIO_PIN_DIR_OUTPUT);
-	
+	nrf_gpio_pin_dir_set(DBG_PIN_3, NRF_GPIO_PIN_DIR_OUTPUT);
+	nrf_gpio_pin_dir_set(DBG_PIN_4, NRF_GPIO_PIN_DIR_OUTPUT);
+	nrf_gpio_pin_dir_set(DBG_PIN_5, NRF_GPIO_PIN_DIR_OUTPUT);
+
 	nrf_gpio_pin_write(DBG_PIN_1, 0U);
 	nrf_gpio_pin_write(DBG_PIN_2, 0U);
+	nrf_gpio_pin_write(DBG_PIN_3, 0U);
+	nrf_gpio_pin_write(DBG_PIN_4, 0U);
+	nrf_gpio_pin_write(DBG_PIN_5, 0U);
 
 #endif 
 
