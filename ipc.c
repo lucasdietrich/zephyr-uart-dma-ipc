@@ -6,8 +6,6 @@
 #include <devicetree.h>
 #include <drivers/uart.h>
 
-#include "nrfx_gpiote.h"
-
 #if defined(CONFIG_UART_IPC_DEBUG_GPIO_STM32)
 #	include <stm32f4xx_hal_gpio.h>
 #	include <stm32f4xx_ll_gpio.h>
