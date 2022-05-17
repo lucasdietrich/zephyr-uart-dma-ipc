@@ -34,6 +34,7 @@ LOG_MODULE_REGISTER(ipc, LOG_LEVEL_INF);
 #	define __DEBUG_RX_HANDLER_ENTER() LL_GPIO_SetOutputPin(GPIOC, DBG_PIN_2)
 #	define __DEBUG_RX_HANDLER_EXIT() LL_GPIO_ResetOutputPin(GPIOC, DBG_PIN_2)
 #	define __DEBUG_RX_FRAME_READY() LL_GPIO_TogglePin(GPIOC, DBG_PIN_3)
+#	define __DEBUG_TX_FRAME_SENT() LL_GPIO_TogglePin(GPIOC, DBG_PIN_4)
 
 #else
 
@@ -41,6 +42,7 @@ LOG_MODULE_REGISTER(ipc, LOG_LEVEL_INF);
 #	define __DEBUG_RX_HANDLER_ENTER()
 #	define __DEBUG_RX_HANDLER_EXIT()
 #	define __DEBUG_RX_FRAME_READY()
+#	define __DEBUG_TX_FRAME_SENT()
 
 #endif
 
@@ -389,6 +391,7 @@ static void uart_callback(const struct device *dev,
 		free_frame((ipc_frame_t **)&evt->data);
 		k_sem_give(&tx_sem);
 		STATS_TX_INC_BYTES_BY(evt->data.tx.len);
+		__DEBUG_TX_FRAME_SENT();
 		break;
 	case UART_TX_ABORTED:
 		break;
