@@ -27,14 +27,23 @@ config UART_IPC_DMA_BUF_SIZE
 	help
 		Adjust internal DMA RX buffer size 
 
-config UART_IPC_DEBUG_GPIO
-	bool "UART IPC debug GPIO"
+config UART_IPC_DEBUG_GPIO_STM32
+	bool "UART IPC debug GPIO (STM32)"
 	default false
 	depends on SOC_SERIES_STM32F4X
 	select USE_STM32_HAL_GPIO
 	depends on UART_IPC
 	help
-		Enable debugging using GPIO pins
+		Enable debugging using GPIO pins on STM32 chips
+
+config UART_IPC_DEBUG_GPIO_NRF
+	bool "UART IPC debug GPIO (NRF)"
+	default false
+	depends on SOC_SERIES_NRF52X
+	select NRFX_GPIOTE
+	depends on UART_IPC
+	help
+		Enable debugging using GPIO pins on NRF chips
 
 choice UART_IPC_DIR
 	prompt "UART IPC direction"

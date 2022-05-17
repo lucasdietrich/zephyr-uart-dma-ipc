@@ -6,9 +6,14 @@
 #include <devicetree.h>
 #include <drivers/uart.h>
 
-#if defined(CONFIG_UART_IPC_DEBUG_GPIO)
+#include "nrfx_gpiote.h"
+
+#if defined(CONFIG_UART_IPC_DEBUG_GPIO_STM32)
 #	include <stm32f4xx_hal_gpio.h>
 #	include <stm32f4xx_ll_gpio.h>
+#elif defined(CONFIG_UART_IPC_DEBUG_GPIO_NRF)
+#	include <nrf52840.h>
+#	include <hal/nrf_gpio.h>
 #endif
 
 #if defined(CONFIG_UART_IPC)
@@ -21,20 +26,31 @@ LOG_MODULE_REGISTER(ipc, LOG_LEVEL_INF);
 // config
 #define IPC_UART_RX_TIMEOUT_MS 1U
 
-#if defined(CONFIG_UART_IPC_DEBUG_GPIO)
+#if defined(CONFIG_UART_IPC_DEBUG_GPIO_STM32)
 
-#	define DBG_PIN_PORT GPIOC
+#	define DBG_PORT GPIOC
 #	define DBG_PIN_1 GPIO_PIN_8
 #	define DBG_PIN_2 GPIO_PIN_9
 #	define DBG_PIN_3 GPIO_PIN_10
 #	define DBG_PIN_4 GPIO_PIN_11
 #	define DBG_PIN_5 GPIO_PIN_12
 
-#	define __DEBUG_RX() LL_GPIO_TogglePin(GPIOC, DBG_PIN_1)
-#	define __DEBUG_RX_HANDLER_ENTER() LL_GPIO_SetOutputPin(GPIOC, DBG_PIN_2)
-#	define __DEBUG_RX_HANDLER_EXIT() LL_GPIO_ResetOutputPin(GPIOC, DBG_PIN_2)
-#	define __DEBUG_RX_FRAME_READY() LL_GPIO_TogglePin(GPIOC, DBG_PIN_3)
-#	define __DEBUG_TX_FRAME_SENT() LL_GPIO_TogglePin(GPIOC, DBG_PIN_4)
+#	define __DEBUG_RX() LL_GPIO_TogglePin(DBG_PORT, DBG_PIN_1)
+#	define __DEBUG_RX_HANDLER_ENTER() LL_GPIO_SetOutputPin(DBG_PORT, DBG_PIN_2)
+#	define __DEBUG_RX_HANDLER_EXIT() LL_GPIO_ResetOutputPin(DBG_PORT, DBG_PIN_2)
+#	define __DEBUG_RX_FRAME_READY() LL_GPIO_TogglePin(DBG_PORT, DBG_PIN_3)
+#	define __DEBUG_TX_FRAME_SENT() LL_GPIO_TogglePin(DBG_PORT, DBG_PIN_4)
+
+#elif defined(CONFIG_UART_IPC_DEBUG_GPIO_NRF)
+
+#	define DBG_PIN_1 3U
+#	define DBG_PIN_2 4U
+
+#	define __DEBUG_RX() nrf_gpio_pin_toggle(DBG_PIN_1)
+#	define __DEBUG_RX_HANDLER_ENTER()
+#	define __DEBUG_RX_HANDLER_EXIT()
+#	define __DEBUG_RX_FRAME_READY() nrf_gpio_pin_toggle(DBG_PIN_2)
+#	define __DEBUG_TX_FRAME_SENT()
 
 #else
 
@@ -641,7 +657,7 @@ static void ipc_thread(void *_a, void *_b, void *_c)
 		return;
 	}
 
-#if defined(CONFIG_UART_IPC_DEBUG_GPIO)
+#if defined(CONFIG_UART_IPC_DEBUG_GPIO_STM32)
 
 	__HAL_RCC_GPIOC_CLK_ENABLE();
 
@@ -656,7 +672,16 @@ static void ipc_thread(void *_a, void *_b, void *_c)
 
 	LL_GPIO_ResetOutputPin(GPIOC, LL_GPIO_PIN_8 | LL_GPIO_PIN_9 |
 			       LL_GPIO_PIN_10 | LL_GPIO_PIN_11 | LL_GPIO_PIN_12);
-#endif
+
+#elif defined(CONFIG_UART_IPC_DEBUG_GPIO_NRF)
+
+	nrf_gpio_pin_dir_set(DBG_PIN_1, NRF_GPIO_PIN_DIR_OUTPUT);
+	nrf_gpio_pin_dir_set(DBG_PIN_2, NRF_GPIO_PIN_DIR_OUTPUT);
+	
+	nrf_gpio_pin_write(DBG_PIN_1, 0U);
+	nrf_gpio_pin_write(DBG_PIN_2, 0U);
+
+#endif 
 
 #if defined(CONFIG_UART_IPC_RX) || defined(CONFIG_UART_IPC_FULL)
 	ret = uart_rx_enable(uart_dev,
