@@ -6,14 +6,6 @@
 #include <devicetree.h>
 #include <drivers/uart.h>
 
-#if defined(CONFIG_UART_IPC_DEBUG_GPIO_STM32)
-#	include <stm32f4xx_hal_gpio.h>
-#	include <stm32f4xx_ll_gpio.h>
-#elif defined(CONFIG_UART_IPC_DEBUG_GPIO_NRF)
-#	include <nrf52840.h>
-#	include <hal/nrf_gpio.h>
-#endif
-
 #if defined(CONFIG_UART_IPC)
 
 #include <logging/log.h>
@@ -45,6 +37,9 @@ BUILD_ASSERT(IPC_MAX_DATA_SIZE % 4 == 0,
 
 #if defined(CONFIG_UART_IPC_DEBUG_GPIO_STM32)
 
+#	include <stm32f4xx_hal_gpio.h>
+#	include <stm32f4xx_ll_gpio.h>
+
 #	define DBG_PORT GPIOC
 #	define DBG_PIN_1 GPIO_PIN_8
 #	define DBG_PIN_2 GPIO_PIN_9
@@ -59,6 +54,9 @@ BUILD_ASSERT(IPC_MAX_DATA_SIZE % 4 == 0,
 #	define __DEBUG_TX_FRAME_SENT() LL_GPIO_TogglePin(DBG_PORT, DBG_PIN_4)
 
 #elif defined(CONFIG_UART_IPC_DEBUG_GPIO_NRF)
+
+#	include <nrf52840.h>
+#	include <hal/nrf_gpio.h>
 
 #	define DBG_PIN_1 3U
 #	define DBG_PIN_2 29U
