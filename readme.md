@@ -156,6 +156,50 @@ Expected pins states when receiving a 272B long frame with DMA buffers of size 6
 - See how stream can be performed ? (probably not the goal of this protocol)
 - Add a Kconfig option to adjust thread priority
 
+## Known bugs
+
+### Last bytes of the frame received late (on next RX cycle)
+
+```
+/* UNKNOWN reason for now (todo)
+ * 
+ * Using DMA buffers size not multiple of the IPC frame size are inefficient
+ * (because of the RX timeout) but should work.
+ * 
+ * Receiving from nRF52840 frames of length 272B (256B of payload) 
+ * with an UART configured with  baudrate 115200 and DMA buffers size of 32 bytes, the
+ * frames are received by pair every two frames duration. (i.e. every two 
+ * frames, one frame is delayed by one period).
+ * 
+ * Enabled UART_IPC_DEBUG_GPIO_NRF/STM32 to debug this issue.
+ */
+BUILD_ASSERT(sizeof(ipc_frame_t) % CONFIG_UART_IPC_DMA_BUF_SIZE == 0,
+	     "IPC frame size must be a multiple of DMA buffer size");
+```
+
+### Frames lost at 1Mbaud:
+	- notice the CRC32 first byte which is 0xAA (byte of the start frame delimiter)
+```
+[00:05:29.461,000] <err> adc_stm32: Calibration not supported
+[00:05:53.118,000] <wrn> http_server: No route found for /favicon.ico
+[00:06:24.017,000] <wrn> http_server: (8) Closing outdated connection 0x200020f0
+[00:06:24.404,000] <wrn> http_server: (7) Closing outdated connection 0x200020b0
+[00:10:11.127,000] <err> ipc: CRC32 mismatch: 6b9f11da != aae5f73d
+[00:10:12.130,000] <wrn> ipc: Seq gap 584 -> 587, 2 frames lost
+[00:14:32.201,000] <err> ipc: CRC32 mismatch: 6b8e3a90 != aa84b058
+[00:14:33.204,000] <wrn> ipc: Seq gap 887 -> 890, 2 frames lost
+[00:20:35.285,000] <err> ipc: CRC32 mismatch: 27693b38 != aa2db3e1
+[00:20:36.288,000] <wrn> ipc: Seq gap 1309 -> 1312, 2 frames lost
+Local (Europe/Paris) Date and time : 2022/05/19 16:48:17
+[00:59:22.076,000] <wrn> ipc: Seq rollback from 3973 to 0, peer probably reseted
+[01:05:53.151,000] <err> ipc: CRC32 mismatch: 5122d2ef != aab537bc
+[01:05:54.154,000] <wrn> ipc: Seq gap 453 -> 456, 2 frames lost
+[01:17:07.298,000] <err> ipc: CRC32 mismatch: c4a9e042 != aa491555
+[01:17:08.301,000] <wrn> ipc: Seq gap 1234 -> 1237, 2 frames lost
+[01:23:53.386,000] <err> ipc: CRC32 mismatch: ea8acd20 != aa5f0f31
+[01:23:54.388,000] <wrn> ipc: Seq gap 1706 -> 1709, 2 frames lost
+```
+
 ## Personnal notes
 
 - Disable all logs in ISR handler

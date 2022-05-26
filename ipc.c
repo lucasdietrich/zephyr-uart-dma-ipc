@@ -305,7 +305,7 @@ int ipc_attach_rx_msgq(struct k_msgq *msgq)
 /**
  * @brief Copy data from the buffer to the context frame
  * 
- * @param data ²
+ * @param data
  * @param len 
  */
 static inline void copy(const uint8_t *data, size_t len)
