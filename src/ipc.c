@@ -1,4 +1,4 @@
-#include "ipc.h"
+#include <uart_ipc/ipc.h>
 
 #include <kernel.h>
 

@@ -1,0 +1,12 @@
+build:
+  # settings:
+  #   board_root: .
+  #   dts_root: .
+  #   soc_root: .
+  #   arch_root: .
+  cmake: zephyr
+  kconfig: zephyr/Kconfig
+# samples:
+#   - samples
+# tests:
+#   - tests

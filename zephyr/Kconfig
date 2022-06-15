@@ -1,22 +1,25 @@
-config UART_IPC
-	bool
-	default n
-	select SERIAL
-    	select UART_ASYNC_API
-	help
-		Enable support for IPC over UART.
+menuconfig UART_IPC
+        bool "Enable UART_IPC module"
+		select SERIAL 
+		select UART_ASYNC_API
+        default n
+        help
+			Enable support for IPC over UART.
+
+if UART_IPC
+
+module = UART_IPC
+module-str = UART_IPC
 
 config UART_IPC_STACK_SIZE
 	int "UART IPC stack size"
 	default 512
-	depends on UART_IPC
 	help
 		Adjust stack size
 
 config UART_IPC_FRAME_BUFFER_COUNT
 	int "UART IPC internal memslab messages count"
 	default 2
-	depends on UART_IPC
 	help
 		Adjust internal memslab messages count.
 		- One for currently being receiving RX frame
@@ -25,7 +28,6 @@ config UART_IPC_FRAME_BUFFER_COUNT
 config UART_IPC_DMA_BUF_SIZE
 	int "UART IPC DMA RX buffers size"
 	default 68
-	depends on UART_IPC
 	help
 		Adjust internal DMA RX buffer size, using a low value might cause performance issues,
 		using a high value implies a big memory footprint.
@@ -35,7 +37,6 @@ config UART_IPC_DEBUG_GPIO_STM32
 	default false
 	depends on SOC_SERIES_STM32F4X
 	select USE_STM32_HAL_GPIO
-	depends on UART_IPC
 	help
 		Enable debugging using GPIO pins on STM32 chips
 
@@ -44,7 +45,6 @@ config UART_IPC_DEBUG_GPIO_NRF
 	default false
 	depends on SOC_SERIES_NRF52X
 	select NRFX_GPIOTE
-	depends on UART_IPC
 	help
 		Enable debugging using GPIO pins on NRF chips
 
@@ -53,20 +53,17 @@ choice UART_IPC_DIR
 	
 config UART_IPC_RX
 	bool "Enable RX"
-	select UART_IPC
 	help
 		Enable RX support
 
 config UART_IPC_TX
 	bool "Enable TX"
-	select UART_IPC
 	help
 		Enable TX support
 
 config UART_IPC_FULL
 	bool "Enable RX AND TX"
 	select POLL
-	select UART_IPC
 	help
 		Enable RX and TX support
 
@@ -75,7 +72,6 @@ endchoice
 config UART_IPC_PING
 	bool "Enable ping support"
 	default n
-	depends on UART_IPC
 	help
 		Enable ping support for TX direction (implicitely supported for RX)
 
@@ -89,13 +85,12 @@ config UART_IPC_PING_PERIOD
 config UART_IPC_STATS
 	bool "Enable stats"
 	default n
-	depends on UART_IPC
 	help
 		Enable stats for the IPC interface (packet loss, etc.)
 
 config UART_IPC_EVENT_API
 	bool "Enable event API"
 	default n
-	depends on UART_IPC
 	help
 		Enable event API
+endif
