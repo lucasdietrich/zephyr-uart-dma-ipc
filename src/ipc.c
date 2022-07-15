@@ -468,6 +468,10 @@ static void uart_callback(const struct device *dev,
 extern uint32_t crc_calculate32(uint32_t *buf,
 				size_t len);
 
+/* TODO remove this warning suppress */
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Waddress-of-packed-member"
+
 static inline uint32_t ipc_frame_crc32(ipc_frame_t *frame)
 {
 	uint32_t *const start = (uint32_t *)&frame->seq;
@@ -475,6 +479,8 @@ static inline uint32_t ipc_frame_crc32(ipc_frame_t *frame)
 
 	return crc_calculate32(start, len >> 2);
 }
+
+#pragma GCC diagnostic pop
 
 enum {
 	IPC_DIRECTION_RX = 0,
