@@ -1,8 +1,6 @@
 
 if(CONFIG_UART_IPC)
 
-	message("HELLO FROM UART_IPC CMakeLists.txt")
-
 	zephyr_library()
 
 	set(UART_IPC_PATH ${ZEPHYR_CURRENT_MODULE_DIR})
