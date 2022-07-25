@@ -512,7 +512,13 @@ static void ipc_log_frame(const ipc_frame_t *frame, uint8_t direction)
 static void ipc_thread(void *_a, void *_b, void *_c);
 
 K_THREAD_DEFINE(ipc_thread_id, CONFIG_UART_IPC_STACK_SIZE, ipc_thread,
-		NULL, NULL, NULL, K_PRIO_COOP(7), 0, 0);
+		NULL, NULL, NULL, K_PRIO_COOP(CONFIG_UART_IPC_THREAD_PRIORITY), 
+		0, CONFIG_UART_IPC_THREAD_START_DELAY);
+
+void ipc_thread_start(void)
+{
+	k_thread_start(ipc_thread_id);
+}
 
 #if defined(CONFIG_UART_IPC_FULL)
 static union {
@@ -684,6 +690,7 @@ static void ipc_thread(void *_a, void *_b, void *_c)
 	}
 
 #if defined(CONFIG_UART_IPC_DEBUG_GPIO_STM32)
+#warning CONFIG_UART_IPC_DEBUG_GPIO_STM32 debug mode use GPIOC pins 8, 9, 10, 11, 12 of STM32F4xx
 
 	__HAL_RCC_GPIOC_CLK_ENABLE();
 
@@ -700,6 +707,7 @@ static void ipc_thread(void *_a, void *_b, void *_c)
 			       LL_GPIO_PIN_10 | LL_GPIO_PIN_11 | LL_GPIO_PIN_12);
 
 #elif defined(CONFIG_UART_IPC_DEBUG_GPIO_NRF)
+#warning CONFIG_UART_IPC_DEBUG_GPIO_NRF debug mode use GPIOC pins 3, 4, 28, 29, 30 of nrf52xxx
 
 	nrf_gpio_pin_dir_set(DBG_PIN_1, NRF_GPIO_PIN_DIR_OUTPUT);
 	nrf_gpio_pin_dir_set(DBG_PIN_2, NRF_GPIO_PIN_DIR_OUTPUT);

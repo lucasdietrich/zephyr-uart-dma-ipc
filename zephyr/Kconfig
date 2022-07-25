@@ -93,4 +93,19 @@ config UART_IPC_EVENT_API
 	default n
 	help
 		Enable event API
+
+config UART_IPC_THREAD_PRIORITY
+	bool "IPC thread priority"
+	default y
+	help
+		Select the (cooperative) priority for the IPC thread
+
+config UART_IPC_THREAD_START_DELAY
+	int "IPC thread start delay"
+	default 0
+	help
+		Select the delay for the IPC thread start,
+		0 means no delay, otherwise the delay is in milliseconds,
+		if delay is -1 the thread doesn't start by itself
+
 endif

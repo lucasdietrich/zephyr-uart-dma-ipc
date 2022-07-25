@@ -149,7 +149,10 @@ Expected pins states when receiving a 272B long frame with DMA buffers of size 6
 ![](./pics/ipc_1mbaud.png)
 
 ## TODO
-- Propose this "module" as an actual Zephyr RTOS module.
+- **Use buffer allocated from memslab to DMA, instead of using double buffers**
+  - This is a great optimization, as we don't need to copy the data from 
+  the DMA buffer to the application buffer.
+- ~~Propose this "module" as an actual Zephyr RTOS module.~~
 - Implementation without the polling API.
 - Make the data size configurable in the frame.
 - Reduce frame size for ping frame, etc...

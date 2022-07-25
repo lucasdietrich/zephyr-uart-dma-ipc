@@ -53,6 +53,11 @@ struct ipc_stats {
 };
 
 /**
+ * @brief Start the IPC thread
+ */
+void ipc_thread_start(void);
+
+/**
  * @brief Attach msg queue to retrieve RX messages
  * 
  * @param msgq 
