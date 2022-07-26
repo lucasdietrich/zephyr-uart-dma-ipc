@@ -779,17 +779,20 @@ static void ipc_thread(void *_a, void *_b, void *_c)
 		/* if k_poll() returned 0, then we (also) need to check if we need to
 		 * send a ping frame
 		 */
-		if ((delay_ms_to_next_ping() == 0U) &&
-		    (alloc_frame(&frame) == 0)) {
-			build_ping_frame(frame);
-
-			if (handle_tx_frame(frame, true) == 0U) {
-				STATS_PING_INC_TX();
-			} else {
-				LOG_WRN("Failed to send ping, ret: %d", ret);
-			}
-
+		if (delay_ms_to_next_ping() == 0U) {
+			/* Reset time if sending fails, to prevent looping */
 			ping_ctx.tx_ms = k_uptime_get_32();
+
+			if (alloc_frame(&frame) == 0) {
+				build_ping_frame(frame);
+
+				/* Don't retry on PING send failure */
+				if (handle_tx_frame(frame, false) == 0U) {
+					STATS_PING_INC_TX();
+				} else {
+					LOG_WRN("Failed to send ping, ret: %d", ret);
+				}
+			}
 		}
 #endif /* CONFIG_UART_IPC_PING */
 	}
