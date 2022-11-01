@@ -15,7 +15,7 @@
 #ifndef _IPC_H_	
 #define _IPC_H_
 
-#include <kernel.h>
+#include <zephyr/kernel.h>
 
 #include "ipc_frame.h"
 

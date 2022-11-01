@@ -1,14 +1,14 @@
 #include <uart_ipc/ipc.h>
 
-#include <kernel.h>
+#include <zephyr/kernel.h>
 
-#include <device.h>
-#include <devicetree.h>
-#include <drivers/uart.h>
+#include <zephyr/device.h>
+#include <zephyr/devicetree.h>
+#include <zephyr/drivers/uart.h>
 
 #if defined(CONFIG_UART_IPC)
 
-#include <logging/log.h>
+#include <zephyr/logging/log.h>
 LOG_MODULE_REGISTER(ipc, LOG_LEVEL_WRN);
 
 // TODO monitor usage using CONFIG_MEM_SLAB_TRACE_MAX_UTILIZATION
