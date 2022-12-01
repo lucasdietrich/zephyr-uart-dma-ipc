@@ -1,3 +1,5 @@
+Don't ever use this thing, it was just a bad initiative of me. Please just use others standard reliable protocols (see COBS protocols, SLIP, PPP, ...)
+
 # Zephyr RTOS : IPC protocol over UART module
 
 In this context IPC stands for Inter Processor Communication
